@@ -1,0 +1,106 @@
+{
+ "cliffs.py": {
+  "sha256": "7b88f26e98cfeaee352cf369e36da87986b3b80b29e3239c745c84c1c9427a5e",
+  "source": "scripts/cliffs.py"
+ },
+ "convert_videos.py": {
+  "sha256": "99976a274654d6e4b48788e7f6c104a6dc437022b331ffc314f9bda191475f5e",
+  "source": "scripts/convert_videos.py"
+ },
+ "dump_role_anims.py": {
+  "sha256": "3146454737c52fa17f466894040edfa47c982de34c9092c0dd59e73f4d19d231",
+  "source": "scripts/dump_role_anims.py"
+ },
+ "export_cards.py": {
+  "sha256": "3b5be81813006fd0a26a9acf01be93181a22308e6ba82f26bf4e6cd5748e7376",
+  "source": "scripts/export_cards.py"
+ },
+ "export_event_arts.py": {
+  "sha256": "dc9b1db3ddf22967630f2b3f8cad5426636d524a0c6ec66afda3e0e35d169ce4",
+  "source": "scripts/export_event_arts.py"
+ },
+ "export_introduce.py": {
+  "sha256": "4c8ea9631dc1948b413b5425d3f0cc48d8cb6276d87bc51c66d45bd1d853f4ae",
+  "source": "scripts/export_introduce.py"
+ },
+ "export_minigame.py": {
+  "sha256": "f238a45ca0088e776d014858f22d25b236640baf3ab99b40ebbaa411550e5da8",
+  "source": "scripts/export_minigame.py"
+ },
+ "export_news.py": {
+  "sha256": "1e7cb887a40ad042875ed2cd6d00785386be6b33eb20e1a70aa66373f59bb577",
+  "source": "scripts/export_news.py"
+ },
+ "export_npcs.py": {
+  "sha256": "c16ca5e87595da908541c6d265d4531dc1a6eaff113a5004a45ccc35ae7af727",
+  "source": "scripts/export_npcs.py"
+ },
+ "export_particles.py": {
+  "sha256": "64c730bc5af16eb038a473f39706b3c4e5cf47ff48274ad39f2485c5d6eaafaa",
+  "source": "scripts/export_particles.py"
+ },
+ "export_questions.py": {
+  "sha256": "b53096635411aee85289ac994e5f80bb3947b62ecf29156440379353a19571f7",
+  "source": "scripts/export_questions.py"
+ },
+ "export_roles.py": {
+  "sha256": "c84a1e97c753b2eaade7ac0d4a3fb0b5cbe7f7cbaa9489afb9d190dc7227c836",
+  "source": "scripts/export_roles.py"
+ },
+ "export_save_big5.py": {
+  "sha256": "2e6d97432a2af28dc7fee5c22e8d7c96c0454dbf3adcdd52ed5f9c9a367a1d52",
+  "source": "scripts/export_save_big5.py"
+ },
+ "export_save_terra_order.py": {
+  "sha256": "6e85f01e52106f86b1d4a5f5ab7d6485f8b249e4ea5978dcca8badede1d1326e",
+  "source": "scripts/export_save_terra_order.py"
+ },
+ "export_scene.py": {
+  "sha256": "b07475144a4e1398d689b3545a841173296de9747788ac56bad5535f281543db",
+  "source": "scripts/export_scene.py"
+ },
+ "export_stages.py": {
+  "sha256": "d0c5a24d8b672a1bedf607954edf61fccbe366545f1b3753869a3d8e46b426cb",
+  "source": "scripts/export_stages.py"
+ },
+ "export_stocks.py": {
+  "sha256": "d130a8719aeeca1fa36d2ae963a1e376fbab50f92f44b0687f8e01717fe882ea",
+  "source": "scripts/export_stocks.py"
+ },
+ "export_story.py": {
+  "sha256": "e244d37818d3088de69fb3ed37e6bdbc66ce8d766bc59df92a5b489ea60fdc26",
+  "source": "scripts/export_story.py"
+ },
+ "export_ui.py": {
+  "sha256": "f701500fbc069768833ba3643e917505945121a5862409a2fa9095b445c208ab",
+  "source": "scripts/export_ui.py"
+ },
+ "export_wonders.py": {
+  "sha256": "fe2fb56d91f185e8bd13f308dadcdfbc91287b676613c6a695460342c9750b00",
+  "source": "scripts/export_wonders.py"
+ },
+ "make_t2s.py": {
+  "sha256": "56bbe8b0eab8aa0e894b310525a30fe877a559a04e4141a2cbe216e23771018c",
+  "source": "port/tools/make_t2s.py"
+ },
+ "plots.py": {
+  "sha256": "e210324ecbcac7b0eb446781c161d0a9075bc897334745377b928d5b6903a89b",
+  "source": "scripts/plots.py"
+ },
+ "prteff.py": {
+  "sha256": "834d3d69822f0d4cd8cb0fdc3a79c4ea83f7fb051280c4c823c239d3ec9d5a8a",
+  "source": "scripts/prteff.py"
+ },
+ "prtfmt.py": {
+  "sha256": "6cf3107995fcf7fd0848567e7d6fc188fa7b4f14aa10e79f76b36191693fc79e",
+  "source": "scripts/prtfmt.py"
+ },
+ "rm8_edition.py": {
+  "sha256": "7e2ca5df5658281431f474d9748b4248ad4e43de4c5494555bc1cf1f5dd073dc",
+  "source": "scripts/rm8_edition.py"
+ },
+ "rm8pak.py": {
+  "sha256": "a4262c62004e723b22788cfd3fc68c509f8b6d4623544414bb530361ba237a56",
+  "source": "scripts/rm8pak.py"
+ }
+}

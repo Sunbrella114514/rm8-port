@@ -1,0 +1,5 @@
+{
+ "_comment": "Fill in after the first release: the URL and SHA-256 of the source package rm8-port-src-<tag>.zip (tools/make_publish_tree.py --zip). rm8_extract --target uses it when no --source is given and no port/ folder lies next to the exe.",
+ "url": "",
+ "sha256": ""
+}

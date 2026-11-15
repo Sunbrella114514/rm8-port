@@ -1,0 +1,26 @@
+# port/ as a repository root (same rules as the top-level .gitignore): no game data, no derived data, no build products, no user data.
+/scenes/
+/results/
+/build-*/
+/loadtest/*.exe
+*.apk
+*.idsig
+*.exe
+*.dll
+*.dat
+*.mpg
+*.bik
+*.keystore
+rm8_gamedate.bin
+rm8_box.bin
+rm8_settings.txt
+__pycache__/
+*.pyc
+# developer scratch scripts (contain a few game-related strings); only make_t2s.py is published
+/tools/*
+!/tools/make_t2s.py
+# third-party dependencies are downloaded by extern/fetch_deps.py (pinned + SHA-256 checked); only the script and its README are tracked.
+# Our own files that belong into them live in deps_local/ (tracked).
+/extern/*
+!/extern/fetch_deps.py
+!/extern/README.md

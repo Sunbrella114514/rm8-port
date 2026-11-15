@@ -1,0 +1,25 @@
+# Isolated build of the minigame module + a tiny test host (mgtest/main.cpp): independent of the board code (roles, cards, events, python).
+#   cmake -S mgtest -B build-mini-mg -G Ninja -DCMAKE_BUILD_TYPE=Release <compilers as in port/README.md> -DLIBRW_PLATFORM=GL3 -DLIBRW_GL3_GFXLIB=SDL2
+#   build-mini-mg/rm8_mgtest.exe <game_dir> <scenes_root> --minigame N [--shot out.png --time T] [--size WxH]
+cmake_minimum_required(VERSION 3.16)
+project(rm8_mgtest CXX C)
+set(CMAKE_CXX_STANDARD 17)
+set(LIBRW_TOOLS OFF CACHE BOOL "" FORCE)
+set(LIBRW_INSTALL OFF CACHE BOOL "" FORCE)
+set(TOP ${CMAKE_CURRENT_LIST_DIR}/..)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+add_subdirectory(${TOP}/extern/SDL2-2.32.10 sdl2)
+if(NOT TARGET SDL2::SDL2)
+  add_library(SDL2::SDL2 ALIAS SDL2-static)
+endif()
+add_subdirectory(${TOP}/extern/librw librw)
+set(A ${TOP}/app)
+add_executable(rm8_mgtest main.cpp stubs.cpp ${A}/scene.cpp ${A}/lmpipe.cpp ${A}/water.cpp ${A}/particles.cpp ${A}/boardfx.cpp ${A}/ui.cpp ${A}/audio.cpp ${A}/zh.cpp
+  ${A}/minigame.cpp ${A}/mg_gfx.cpp ${A}/mg_3d.cpp ${A}/mg_standalone.cpp ${A}/mg_18.cpp ${A}/mg_19.cpp ${A}/mg_20.cpp ${A}/mg_21.cpp ${A}/mg_22.cpp ${A}/mg_23.cpp)
+target_include_directories(rm8_mgtest PRIVATE ${A})
+target_link_libraries(rm8_mgtest PRIVATE librw SDL2::SDL2main SDL2::SDL2)
+if(MINGW)
+  target_link_options(rm8_mgtest PRIVATE -static)
+endif()

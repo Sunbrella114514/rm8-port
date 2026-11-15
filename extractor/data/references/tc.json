@@ -1,0 +1,1548 @@
+{
+ "edition": "tc",
+ "exe_note": "RichMan8.exe FileVersion 1.0.0.1117，编译时间 2008-01-11",
+ "files": {
+  "Bink/Staff.bik": {
+   "role": "video",
+   "sha256": "24bb0611bd39648253d56a3cb35b3e7de9f5016118a57ccdf63c1e986ed822c0",
+   "size": 38554964
+  },
+  "Bink/Start.bik": {
+   "role": "video",
+   "sha256": "1071d74ee0bbcfef69d633486be921d9ea95d1dc501ef2baf2352fb199c08a8d",
+   "size": 41814276
+  },
+  "Binkw32.dll": {
+   "role": "info",
+   "sha256": "f7e786adc9f42272c4691fdc9013434b8afe31e1b3cd956ec62642fc4ca814b8",
+   "size": 377856
+  },
+  "Clump/clump0000.dat": {
+   "role": "core",
+   "sha256": "18508af7f5cf6046b2ce5e4d127c9256fad6c5cfb9b95c5a20b1e3e9ea0e282c",
+   "size": 40225934
+  },
+  "Config/UI/AskPoint.ui": {
+   "role": "core",
+   "sha256": "226dfd191a3d9c85a30eb6c205c736f102ba0f41814e511e86a900cfce9fcc43",
+   "size": 4087
+  },
+  "Config/UI/Letou.ui": {
+   "role": "core",
+   "sha256": "6ccc5f3c382f50070687fb815f2eb364777df3921ba2c3ef7c63939e64706d75",
+   "size": 9714
+  },
+  "Config/UI/MagicHouse.ui": {
+   "role": "core",
+   "sha256": "d87bf35ca2b2976fcb96a8a4a4b8cdb1f879763828690986408c372762799f21",
+   "size": 4281
+  },
+  "Config/UI/MovieFrame.ui": {
+   "role": "core",
+   "sha256": "92b5d14a65a9f218fe4a93c15e71e11d1d94961c6d379e8b239cc79dd5e79418",
+   "size": 1008
+  },
+  "Config/UI/MovieLine.ui": {
+   "role": "core",
+   "sha256": "d67773626f9717abb5022353e79ad953e88e386bcd5bd8178a3f2431eaba825c",
+   "size": 4270
+  },
+  "Config/UI/PowerCo.ui": {
+   "role": "core",
+   "sha256": "46eb22a9e1b248df993617bb6d4b269f7d040467cec660051c40ce75c5bd6320",
+   "size": 1911
+  },
+  "Config/UI/SingleStock.ui": {
+   "role": "core",
+   "sha256": "29e96a7af0962423ef95da6e80a5ec1464679dab718b60d596ebbbf53c334c8e",
+   "size": 11209
+  },
+  "Config/UI/SpeakAside.ui": {
+   "role": "core",
+   "sha256": "715c420f18764da8856025620b574fe2a349ba0bf7724dc311688000159b4115",
+   "size": 1020
+  },
+  "Config/UI/StockBoard.ui": {
+   "role": "core",
+   "sha256": "d3070d3d0896a157ff11304e63614ae8ff1810da8012181f4846c8261050310d",
+   "size": 40629
+  },
+  "Config/UI/balance.ui": {
+   "role": "core",
+   "sha256": "8e8655213e3243405c1f7e954863719d07b3d954d89d8bba845db9a549412997",
+   "size": 4473
+  },
+  "Config/UI/bank.ui": {
+   "role": "core",
+   "sha256": "9b7dc4c19f37030807d37e90e7e7b7e33230db733c725a609db2b11e4bcf73bd",
+   "size": 7429
+  },
+  "Config/UI/boxmenu.ui": {
+   "role": "core",
+   "sha256": "18272e3cbe1631f36dd11c754dbbaa0fdb3acc3c658029983920b53aff99fb6e",
+   "size": 8949
+  },
+  "Config/UI/business.ui": {
+   "role": "core",
+   "sha256": "b0982529072482fa49961a53b4758767e6c84ddfc371ed575dc35fe3979c318c",
+   "size": 947
+  },
+  "Config/UI/cardShop.ui": {
+   "role": "core",
+   "sha256": "a218d76e1647f78d26b54d7c7271ba8762fc0768d983e1131ce02996eefd81be",
+   "size": 9832
+  },
+  "Config/UI/chsMapMenu.ui": {
+   "role": "core",
+   "sha256": "294ab643ff93f97251eabe42399f9efe956d8d2387738511e56d704766996bc7",
+   "size": 12588
+  },
+  "Config/UI/chsRoleMenu.ui": {
+   "role": "core",
+   "sha256": "0cb9102f6d42fad79427db703494de19525cb72e8624063f3dc2bcf76c9de976",
+   "size": 15160
+  },
+  "Config/UI/chsplayer.ui": {
+   "role": "core",
+   "sha256": "b7b1577f68b2af7bd409aaea8f9e5519bacf88b8c314d28c8bb478b48685ee42",
+   "size": 1110
+  },
+  "Config/UI/court.ui": {
+   "role": "core",
+   "sha256": "5b3ebde6b9d437d906043803d373dbf67254435e1249506d176bfb6a358e0fc9",
+   "size": 4648
+  },
+  "Config/UI/cover.ui": {
+   "role": "core",
+   "sha256": "404dc55ce745dffbd88748e48499a790a675bbbcfe4119b895ec3d67e45f4bbb",
+   "size": 957
+  },
+  "Config/UI/dice.ui": {
+   "role": "core",
+   "sha256": "06adf0e3743473a73654bb90308ec8ca3b26e8a0b5f0e68dc0c9554c22de9e62",
+   "size": 1586
+  },
+  "Config/UI/exit.ui": {
+   "role": "core",
+   "sha256": "c77e502bdb914567653875ab054671539c8fd385bfe278d057f9d605ea272a9f",
+   "size": 957
+  },
+  "Config/UI/finalMenu.ui": {
+   "role": "core",
+   "sha256": "72287ecb2da301cc43b076077ecdaaee7540beb7c10251e814097efc05f42c66",
+   "size": 7142
+  },
+  "Config/UI/getcard.ui": {
+   "role": "core",
+   "sha256": "c7e441c25a54d0a2f0669ec992d9f7e8477107e966dcc6df7771c11a849ff967",
+   "size": 800
+  },
+  "Config/UI/ginfo.ui": {
+   "role": "core",
+   "sha256": "1a7ab88b0939b19583ac0e023f9dd0543ab9f057a72637527341a3643f119992",
+   "size": 423
+  },
+  "Config/UI/gmaindlg.ui": {
+   "role": "core",
+   "sha256": "132fb1a42a9d2d3291b5340c87f017e4fa0504ce4cff53d70f593f6909ff3fab",
+   "size": 10666
+  },
+  "Config/UI/go.ui": {
+   "role": "core",
+   "sha256": "3e19dfa0d1c384ced7587f60364a3bca46ca31a24761ce116edaf13a80c62975",
+   "size": 1463
+  },
+  "Config/UI/graduate.ui": {
+   "role": "core",
+   "sha256": "964665730f9c21bdd02c6dc90e09a649d6bb5a5822cd01c5ef0ed5d9a4cd2bb2",
+   "size": 2815
+  },
+  "Config/UI/gsys.ui": {
+   "role": "core",
+   "sha256": "a7dc78caf26e32d9fdef4da8767dbed54b918df308c2c15f919d21b5c053d296",
+   "size": 1898
+  },
+  "Config/UI/gtinfo.ui": {
+   "role": "core",
+   "sha256": "d3a81dbf69e50168bcb4a0a06758befb7d4e8968e86c70eec8dc92534d25bfe8",
+   "size": 771
+  },
+  "Config/UI/hotel.ui": {
+   "role": "core",
+   "sha256": "1c29d4a0a2d6554742adda95e4d992427ad372e59a5c46fb450b82734f34f3fd",
+   "size": 964
+  },
+  "Config/UI/intro.ui": {
+   "role": "core",
+   "sha256": "352290698bf8c61e12fa9f7ce639b1185e881f5c3fc0298dcb855fa57c5c5add",
+   "size": 712
+  },
+  "Config/UI/letouErnie.ui": {
+   "role": "core",
+   "sha256": "50b612bba5e8bf9fd763d85aa04634a024efc629e17ff7c744f1a9c99e2a8d5b",
+   "size": 8857
+  },
+  "Config/UI/lg/lg_blastomere.ui": {
+   "role": "core",
+   "sha256": "4207aba2f7e55ee24668e80673409db018024a008171f7db1b544fd60267bb75",
+   "size": 5637
+  },
+  "Config/UI/lg/lg_intro.ui": {
+   "role": "core",
+   "sha256": "3f275399c5265d6948c2a01d27db85eb442adb3568459f8fa79acd734b95737a",
+   "size": 649
+  },
+  "Config/UI/lg_blastomere.ui": {
+   "role": "core",
+   "sha256": "baf7ddf2bc128bb5cd096fc67c16e6b0d3a579eebba95a73879acdea0de1ded0",
+   "size": 5637
+  },
+  "Config/UI/lg_intro.ui": {
+   "role": "core",
+   "sha256": "32798859a03ae26dd2c82671e490f7a1682ef1d9e1db9356e71139b4c441f67a",
+   "size": 649
+  },
+  "Config/UI/loading.ui": {
+   "role": "core",
+   "sha256": "a43ff2a68dd95e9d92557a81d2fefc47a4978b14a353ef6f67fbe16fb9a83cf3",
+   "size": 3103
+  },
+  "Config/UI/ltgameMenu.ui": {
+   "role": "core",
+   "sha256": "bbd42494dbf74c15ce8c10217b5db161dd8126219ce9e2e447c0cd1fa34efa8a",
+   "size": 5038
+  },
+  "Config/UI/mainmenu.ui": {
+   "role": "core",
+   "sha256": "b04c2b2db40d5ea58834e97df50aa0e8652bd2a9f6416b9322f562e0c9ea4d7c",
+   "size": 5845
+  },
+  "Config/UI/maintest.ui": {
+   "role": "core",
+   "sha256": "e0aeed57c651026a16e47d402857ab1e89e152d9c0c4e5e2ccf68493c6a7577a",
+   "size": 1018
+  },
+  "Config/UI/market.ui": {
+   "role": "core",
+   "sha256": "e8e59e8fd5e0d036e9c61f7378578d4c6d4f9cedfa5959f218c8c168ba987398",
+   "size": 960
+  },
+  "Config/UI/minimap.ui": {
+   "role": "core",
+   "sha256": "321eb6e7fee80afc2778df59cbc140b039c1fef84319c5781c3cb4b5dca4a0f6",
+   "size": 1693
+  },
+  "Config/UI/movieWord.ui": {
+   "role": "core",
+   "sha256": "633ee8c9926a703a0319b2065f5f68d1296b7dc5989535153f1712f21a9ae017",
+   "size": 691
+  },
+  "Config/UI/mult.ui": {
+   "role": "core",
+   "sha256": "04af2d89dede5481b1e1756e5c9cdea2c8fd48130c1b62c50bfa44b24b41ff52",
+   "size": 5913
+  },
+  "Config/UI/news.ui": {
+   "role": "core",
+   "sha256": "a970d6f3c1d41c7b0ef12e35ff1bbf0b392aa93a55316f49e444de75a348a4da",
+   "size": 835
+  },
+  "Config/UI/okcancel.ui": {
+   "role": "core",
+   "sha256": "9bb7940bd107946ba51a6f05bdf66e189bc93f9b5fd3ad9289ad9d31babebde3",
+   "size": 914
+  },
+  "Config/UI/optionMenu.ui": {
+   "role": "core",
+   "sha256": "093ace7a65699606def622526c01eb42561c215b3a660918c6f62c8563654f02",
+   "size": 7000
+  },
+  "Config/UI/picmenu.ui": {
+   "role": "core",
+   "sha256": "7dae0b1fb393591cf4f9c6aa87dc2ed7ab88da5c1efa0af552d1f00c65cdb107",
+   "size": 8989
+  },
+  "Config/UI/playerinfo.ui": {
+   "role": "core",
+   "sha256": "a5a5b33b5645210efb32185b1190cb0ea6a82f10e8e662980593c2d745b2b5a8",
+   "size": 17973
+  },
+  "Config/UI/rob.ui": {
+   "role": "core",
+   "sha256": "b1ba1978e3ca6bf13be68d19071c1430e62ce385b236b320a4b16c4bc7747e10",
+   "size": 4184
+  },
+  "Config/UI/saveload.ui": {
+   "role": "core",
+   "sha256": "921bb2384c544c3feec78daeb49abf911b55809d4c76f621db11bef6234d3772",
+   "size": 3359
+  },
+  "Config/UI/scrbar.ui": {
+   "role": "core",
+   "sha256": "dd3acaa7f4238524bcf81e6f7f3f96c69626fb4477bef50dd06e876ba526a962",
+   "size": 2063
+  },
+  "Config/UI/setting.ui": {
+   "role": "core",
+   "sha256": "9945445167fe388805d8916f6252f892a8aa0d78185178e6afe38d5191907b6f",
+   "size": 3142
+  },
+  "Config/UI/single.ui": {
+   "role": "core",
+   "sha256": "bf1b48ea4be11407bc697fc702f513e49c895a3d06ea1a2d5af00a226cffb7f4",
+   "size": 6003
+  },
+  "Config/UI/slmenu.ui": {
+   "role": "core",
+   "sha256": "b8d30515ef768f037d031cceb36706c218e0f5e84334894b14e197d5f7a33b03",
+   "size": 16817
+  },
+  "Config/UI/speech.ui": {
+   "role": "core",
+   "sha256": "c43c471c7ecc0930062b6c664e23361054f1c4d6527bc41b61caa1e45dd26572",
+   "size": 1407
+  },
+  "Config/UI/sscrbar.ui": {
+   "role": "core",
+   "sha256": "bd3bbafcc2face9e5013f9aa943dd96405691292aa5b0ad35c9314e7e49e0df1",
+   "size": 2875
+  },
+  "Config/UI/supply.ui": {
+   "role": "core",
+   "sha256": "a99edac203fb90b76ac54230ef4d04a518823d6c248abbd305eb5d5339afa1c6",
+   "size": 957
+  },
+  "Config/UI/throwcard.ui": {
+   "role": "core",
+   "sha256": "aee34538feffa139e18d5ab17c4f07adf2c0cb3d48a4ad23b317d92487ec4dca",
+   "size": 731
+  },
+  "Config/UI/ticketCenter.ui": {
+   "role": "core",
+   "sha256": "5c430cd0820a33098dfdcc31bce1ecad1a57b8231ac76d5edfe8b2be24a81d7c",
+   "size": 2110
+  },
+  "Config/UI/tradeStock.ui": {
+   "role": "core",
+   "sha256": "3b900d2d9e2f16921e6fdd4ffc09b20df0ddd47df50419966ffe2641f5247ddb",
+   "size": 4485
+  },
+  "Config/UI/vendue.ui": {
+   "role": "core",
+   "sha256": "9e999c6b9e7d64baed00ad5f9e71969fabeb35c1c0c6bdd3ae179cf8d8d2a61e",
+   "size": 2641
+  },
+  "Config/UI/wincondition.ui": {
+   "role": "core",
+   "sha256": "dd83fa9ad4af2b46300ac912c35c6543d616d25c8bf66961f129639344ae3a08",
+   "size": 423
+  },
+  "Config/UI/wonder.ui": {
+   "role": "core",
+   "sha256": "1285ec40fa838cabf0f5d17bc714b54576f2d60ddcbcf2f7e2482a6099a0ce59",
+   "size": 422
+  },
+  "Config/building.bin": {
+   "role": "core",
+   "sha256": "923e7339ade863cccfb1c655c2a4551064e5f7a645c1833fb92dbfadbdffb825",
+   "size": 747
+  },
+  "Config/card.bin": {
+   "role": "core",
+   "sha256": "7e694c0f549742c42cd16aa4f72e8f700da8a72a34368968b5f1e322ff3e6eae",
+   "size": 5516
+  },
+  "Config/event.bin": {
+   "role": "core",
+   "sha256": "a0f7fcceed478ccd1839dc1b800ea277a0ace52bfa4e8bf6eb6383aa34731feb",
+   "size": 449
+  },
+  "Config/festival.bin": {
+   "role": "core",
+   "sha256": "cdbbe89ac4f28cadb77118698496addf516b44e815b3e2b5570e621a1d98297c",
+   "size": 2006
+  },
+  "Config/gamedate.bin": {
+   "role": "mutable",
+   "sha256": "",
+   "size": 0
+  },
+  "Config/init.txt": {
+   "role": "mutable",
+   "sha256": "",
+   "size": 0
+  },
+  "Config/introduce.bin": {
+   "role": "core",
+   "sha256": "cdfa16e0e28311c7bdd21e9dc7df10d22b5c95d776a358341547af97f4d7060b",
+   "size": 9749
+  },
+  "Config/landtex.bin": {
+   "role": "core",
+   "sha256": "a9cdeebbdd38a07a0ae386ec0163871526fca868192564873ecf2163dd63cba4",
+   "size": 731
+  },
+  "Config/movie.bin": {
+   "role": "core",
+   "sha256": "dc0fed007c61d26b5d53730b5593adb1b25a41dd99ac0a2628fd24fd81bdc558",
+   "size": 1676
+  },
+  "Config/newOut/role.bin": {
+   "role": "core",
+   "sha256": "82025c23227431dff8e79be4055141271fbf152a909516b060acc838eba5e8f4",
+   "size": 4707572
+  },
+  "Config/npcinfo.bin": {
+   "role": "core",
+   "sha256": "c15d7976e09d68e65a0a9c5133eafe78359f570bc486b8718aca1f30b13d871a",
+   "size": 2251
+  },
+  "Config/pass/pass_01.bin": {
+   "role": "core",
+   "sha256": "e7e9965937a6a1b2aedc02657ea270ab499a54d73da5b6e005e5b0307facfb87",
+   "size": 1581
+  },
+  "Config/pass/pass_02.bin": {
+   "role": "core",
+   "sha256": "c62c312ee18cbcaa29ef4fe323525e05dae443452c65df2450a1e11f83a9d504",
+   "size": 1599
+  },
+  "Config/pass/pass_03.bin": {
+   "role": "core",
+   "sha256": "c144d8a99c98cdbd5fbd9b28fa9cafc6e00c6a9400b20f035f24fa7447dde84e",
+   "size": 1436
+  },
+  "Config/pass/pass_04.bin": {
+   "role": "core",
+   "sha256": "4d405fc440643f3055fdee8e9727139e23b6590d5c7eee3d751b4f04eddf9872",
+   "size": 904
+  },
+  "Config/pass/pass_05.bin": {
+   "role": "core",
+   "sha256": "ff54da61cdfc423a9ea468a58d5fd2e73d5272f89f23d891df419d1752b6b32f",
+   "size": 1376
+  },
+  "Config/pass/pass_06.bin": {
+   "role": "core",
+   "sha256": "126e593c1d6645aaf352833bb65a6e7b546e198810fa81561d0af678fabe196d",
+   "size": 1390
+  },
+  "Config/pass/pass_07.bin": {
+   "role": "core",
+   "sha256": "7eb7a7f9f3bd6b6d69781aeeb19fef5c892ea30f114bbb7e37b08f9a944d0d93",
+   "size": 1531
+  },
+  "Config/pass/pass_08.bin": {
+   "role": "core",
+   "sha256": "708eda8c20ae930fcfbc3fd3604e8b55cc08af781e4a54473b72eed9ce27ce68",
+   "size": 1570
+  },
+  "Config/pass/pass_09.bin": {
+   "role": "core",
+   "sha256": "7fca6bbf5ac430f61ee9e71676706e427987f955412b3222140ba0a1bdf53262",
+   "size": 1672
+  },
+  "Config/pass/pass_10.bin": {
+   "role": "core",
+   "sha256": "c06b88ac846c8d0fdea50c36d2a910781f5be74285f3fc48fc8dcfce63c6ed82",
+   "size": 1564
+  },
+  "Config/pass/pass_11.bin": {
+   "role": "core",
+   "sha256": "4ece15232b5dc48c7d677170a728faaea0c65ac360dcc1c05312b6e46a31c29c",
+   "size": 1392
+  },
+  "Config/pass/pass_12.bin": {
+   "role": "core",
+   "sha256": "22501f6dcbacedec876bd2711900bf4827bea88ee77e2c0bcc41a3f748f2b90b",
+   "size": 1378
+  },
+  "Config/pass/pass_13.bin": {
+   "role": "core",
+   "sha256": "9aac3706731e6d24aa9a11b8abf8ac84097cf9c7a87d7011aa4379e85e097c53",
+   "size": 1368
+  },
+  "Config/pass/pass_14.bin": {
+   "role": "core",
+   "sha256": "d9eda907486085b3d029c73c8749ea03702da729d56845af136149f80aefe901",
+   "size": 1532
+  },
+  "Config/pass/pass_15.bin": {
+   "role": "core",
+   "sha256": "7b654ab98c5a6543b6e9b6c9f728e6c6c3b019740fae6598f8eb95c967ca71a8",
+   "size": 1371
+  },
+  "Config/pass/pass_16.bin": {
+   "role": "core",
+   "sha256": "d6759a39f2b3dcbab47f15e9e154e4477e26f315e011afffbbb0cb00854b680f",
+   "size": 1577
+  },
+  "Config/prt/PrtEffTable.tb": {
+   "role": "core",
+   "sha256": "59beabda10f82d3ff704bb667c36a0302d34824e7d5495469fa79849d5eba8df",
+   "size": 9580
+  },
+  "Config/prt/uvlisttable.tb": {
+   "role": "core",
+   "sha256": "f9c099ccdd684a6e6524afcd6afc8577a86f4215c6e36ab0372e3f6b81c1220f",
+   "size": 131153
+  },
+  "Config/questions_normal.ini": {
+   "role": "core",
+   "sha256": "1069a1f4ecb693205d092b9d0b5c39dca2fba285121157f502e5de59effd432a",
+   "size": 26558
+  },
+  "Config/roleinfo.bin": {
+   "role": "core",
+   "sha256": "9878149f48474855ed9ac8d42cea7f68442a722c44429dbe2b324d1f3a709f55",
+   "size": 3939
+  },
+  "Config/route.bin": {
+   "role": "core",
+   "sha256": "f84182c6d9f75b0408bfe63108b1e0aa46345aa749999c568cec693761fa54ae",
+   "size": 440
+  },
+  "Config/speech/drama.bin": {
+   "role": "core",
+   "sha256": "9585c603a2ed20bc9359eedc2b1f6db58f274432338b412c933cc454039c9266",
+   "size": 7535
+  },
+  "Config/speech/sp_01.bin": {
+   "role": "core",
+   "sha256": "f6d7c654876a9169bbb2353860e3f848916f22b377b4597c5629806ce410a6e6",
+   "size": 2082
+  },
+  "Config/speech/sp_02.bin": {
+   "role": "core",
+   "sha256": "729f9b167d4aacf21d8fffbd26f1432958409020f309abe3aeaca7c2336beadb",
+   "size": 1841
+  },
+  "Config/speech/sp_03.bin": {
+   "role": "core",
+   "sha256": "5ab00b10a9166fd73ff49774af0f534a856d01956fedb01f03efd6a7a3b3efea",
+   "size": 1755
+  },
+  "Config/speech/sp_04.bin": {
+   "role": "core",
+   "sha256": "18c1806ce5037d8b7d71edae2a47c7a32df244320b072cad62a5b08edf4a3675",
+   "size": 1877
+  },
+  "Config/speech/sp_05.bin": {
+   "role": "core",
+   "sha256": "0d66e3a5711648858dfbf07208d2725fd0c95b9204a54e157c7354778f9db0cd",
+   "size": 1859
+  },
+  "Config/speech/sp_06.bin": {
+   "role": "core",
+   "sha256": "403a4cd964f095cfdae1ee082bf54b73012b4cbc13d2aa1db726edd11e58eee8",
+   "size": 1842
+  },
+  "Config/speech/sp_07.bin": {
+   "role": "core",
+   "sha256": "0f6a928c46b508d884def401f758b0ed7698bd977f3f8fd255288baeb8266f0b",
+   "size": 1676
+  },
+  "Config/speech/sp_08.bin": {
+   "role": "core",
+   "sha256": "1ef8b1af7cfc79d7d1e4025c2d9a597ad8da089f7fa89b722ef556ac0ad92705",
+   "size": 1467
+  },
+  "Config/speech/sp_09.bin": {
+   "role": "core",
+   "sha256": "3f49a83d68501d4099669059894ff391887c555b2fce49c915645df4e1a7b424",
+   "size": 1636
+  },
+  "Config/speech/sp_10.bin": {
+   "role": "core",
+   "sha256": "551cc9e745ac6bb99dc2c105e10669abe281180437c35bc3d15a210c35f2146b",
+   "size": 1698
+  },
+  "Config/speech/sp_11.bin": {
+   "role": "core",
+   "sha256": "712257b13c105c304b4059d6c1b69376505e33307391c890599767af81ea40cf",
+   "size": 1710
+  },
+  "Config/speech/sp_12.bin": {
+   "role": "core",
+   "sha256": "f95d66f2d95fa2de9b57792ae7df3215a0748b35abbee770e336b52267e8fb27",
+   "size": 1765
+  },
+  "Config/speech/sp_13.bin": {
+   "role": "core",
+   "sha256": "c881555187d7e86941a32b1f163bac3945ffa6ec93cc65617384bab92f3b0100",
+   "size": 1619
+  },
+  "Config/speech/sp_14.bin": {
+   "role": "core",
+   "sha256": "63500807b00b2c6b91e25688866255925583f4667d355efd113a1ca53e8a8630",
+   "size": 1588
+  },
+  "Config/speech/sp_15.bin": {
+   "role": "core",
+   "sha256": "b1bace537bdf2c0adf72bc4db27776ed17efb7f87509f75f295822af6cec795a",
+   "size": 1610
+  },
+  "Config/speech/sp_16.bin": {
+   "role": "core",
+   "sha256": "a94757f2868acfed2d3bc7e775b98857b7c3864fe627f8b73379004a686395b1",
+   "size": 1794
+  },
+  "Config/stage.bin": {
+   "role": "core",
+   "sha256": "b2451b4ffa3b63c0e3ca0feefe829073975d34dec8e87cdd5cae1d4e9f08a201",
+   "size": 611
+  },
+  "Config/stock.bin": {
+   "role": "core",
+   "sha256": "87e078b4191b3c95d1c77cada26b17ae7f0376ccc31818914db7c919764602b3",
+   "size": 8874
+  },
+  "Config/street.bin": {
+   "role": "core",
+   "sha256": "83229aa11dfc34899d31f99996bcd8f3f13e42e9f1b5d01d544073d46d796a31",
+   "size": 3466
+  },
+  "Config/string.bin": {
+   "role": "core",
+   "sha256": "cdaaf92a4ab4bf4252f0783a992f30d428b30a302033d6a9a3cd1264d150dfcb",
+   "size": 86350
+  },
+  "GameInfo.inf": {
+   "role": "info",
+   "sha256": "c79efa169bbdb3cc2cd677e16af6050bd59f1e50b75abb54360f533690905269",
+   "size": 70
+  },
+  "Map/01.ltm": {
+   "role": "core",
+   "sha256": "19e82377b3e5bb8a2dd87c21954ba2096a6be2d1ab1a74dfb12914d9a2a62a4d",
+   "size": 4754052
+  },
+  "Map/01.map": {
+   "role": "core",
+   "sha256": "2935b3afc0794c5fc45fc7fa52445e838dba5b8e5cb81093ae58305a1baf3eca",
+   "size": 209420
+  },
+  "Map/02.ltm": {
+   "role": "core",
+   "sha256": "7af1004ff421d37164a20febd32b8c25206c87d9fd63d59932e92d631565f785",
+   "size": 4816632
+  },
+  "Map/02.map": {
+   "role": "core",
+   "sha256": "4aa4d9c9b231ac5ef3c6cb6279aa8c0a6f1ea2544cee74e2c76ef47710960094",
+   "size": 210560
+  },
+  "Map/03.ltm": {
+   "role": "core",
+   "sha256": "f1569f6a34ceb3121632e4da22c21fc1879deef28913ccca7fe6ac6730011d97",
+   "size": 4829148
+  },
+  "Map/03.map": {
+   "role": "core",
+   "sha256": "7f6b33f8d1078368a01a5478566aa628cb4d46cbb908a92ea992e285b92724ff",
+   "size": 210888
+  },
+  "Map/04.ltm": {
+   "role": "core",
+   "sha256": "0d838cbdd88c6b0681f7dfb4d9bda85e79e953d80956e4c3d88031d43797e3c3",
+   "size": 4670612
+  },
+  "Map/04.map": {
+   "role": "core",
+   "sha256": "462266bfccde31d95b991a515fa047118da71e7773e6f927305ede1fc086c9f6",
+   "size": 210712
+  },
+  "Map/05.ltm": {
+   "role": "core",
+   "sha256": "e4f379e7738cb0bbefd1ea5882662df8a4f5299407fe0f670bd3c0985be902bf",
+   "size": 4557968
+  },
+  "Map/05.map": {
+   "role": "core",
+   "sha256": "5ccdc4c406f85ee10abe161984ea9bf352d37db20f3e3959d63574a17a7cd828",
+   "size": 206684
+  },
+  "Map/06.ltm": {
+   "role": "core",
+   "sha256": "43e1b9f02da1c07b7c408b05dbae8be01e8269d611bbe4fcf53017543376646a",
+   "size": 4724848
+  },
+  "Map/06.map": {
+   "role": "core",
+   "sha256": "61aa654b2450f42de07390e959549f1f5313ede81cd9222abbea98a9680db53e",
+   "size": 208888
+  },
+  "Map/07.ltm": {
+   "role": "core",
+   "sha256": "d732d78a6a4edbb17fa8e4d58115075272ada408cd37c7a507a309dd619a1093",
+   "size": 4662268
+  },
+  "Map/07.map": {
+   "role": "core",
+   "sha256": "e45e5fad8fe801a7db3fb6a6ea19e0b175b8e5e778cd1c44ff6e218409182210",
+   "size": 208356
+  },
+  "Map/08.ltm": {
+   "role": "core",
+   "sha256": "ae82c193da441e42a2e45adfdf0fe293e0ca24a0941c064d204634ee9dec9ef1",
+   "size": 4462012
+  },
+  "Map/08.map": {
+   "role": "core",
+   "sha256": "c7a02e9ca9851f1364947e6506773bb16e32dc014bbc9665b387278b2ac6f8c8",
+   "size": 204048
+  },
+  "Map/09.ltm": {
+   "role": "core",
+   "sha256": "a4f5eee98735aa56221cfbcefce3ef140513812604801cac60e44321c6e056bb",
+   "size": 4562140
+  },
+  "Map/09.map": {
+   "role": "core",
+   "sha256": "9ca9169581d7d13bbb2bf00e0670c2d53a24471638c8df94a96649fad03fa120",
+   "size": 205924
+  },
+  "Map/10.ltm": {
+   "role": "core",
+   "sha256": "f27b8a44d8d09741341b775f89a75c39e82661c27e437036e000edc86d3c64fc",
+   "size": 4616376
+  },
+  "Map/10.map": {
+   "role": "core",
+   "sha256": "52f3b72a3f7317fd3211b37b3b487de6376781c62811dff32be5670cab992ace",
+   "size": 206988
+  },
+  "Map/11.ltm": {
+   "role": "core",
+   "sha256": "9a85d9a31ccdd3f6de5e2e3bd3dd33a404bbf427586dfe7829120ebc149d50e1",
+   "size": 4524592
+  },
+  "Map/11.map": {
+   "role": "core",
+   "sha256": "86c1f5adf4dda4dab488b10bb1856611fb0bed66cd2fd8f5e8021da893f55f06",
+   "size": 205240
+  },
+  "Map/download201.ltm": {
+   "role": "core",
+   "sha256": "170afda746d3caf9213ab7592a5d14c27f611dcf171d857887dcd5fbc3ccc7c2",
+   "size": 4278444
+  },
+  "Map/download201.map": {
+   "role": "core",
+   "sha256": "3ba3c86c99e18bcaeac8bf4f96554ac1fb0ffc723e75f6946d4cf126c378db6d",
+   "size": 200756
+  },
+  "Map/download202.ltm": {
+   "role": "core",
+   "sha256": "7f3321acad645ecc3bd67f521ae8d8b62dd6b7283c2bb919b1fe21d1fd8055e6",
+   "size": 4478700
+  },
+  "Map/download202.map": {
+   "role": "core",
+   "sha256": "a0124ba2699711793ea7fde85721b9adbf4223180dbeb926f91002fda8173fdc",
+   "size": 204708
+  },
+  "Map/download203.ltm": {
+   "role": "core",
+   "sha256": "587a0ae737964182405ce8db1e393a22ee11094eb48eb06f906ea06547efdb0d",
+   "size": 4920932
+  },
+  "Map/download203.map": {
+   "role": "core",
+   "sha256": "2b23d15b4b53e31ba1141c245097e892d1745b0fbc12581397a9f1e49dd5e748",
+   "size": 212864
+  },
+  "Map/download204.ltm": {
+   "role": "core",
+   "sha256": "4defdfbfe557c192216cd13ee29f1324a460675ef5ee3a57603009e31496e3ac",
+   "size": 4403604
+  },
+  "Map/download204.map": {
+   "role": "core",
+   "sha256": "fd3dbda53bb81725cf1751445d2e29331331c2c8416a7c37ff5396c5ee6f262e",
+   "size": 203036
+  },
+  "Mss32.dll": {
+   "role": "info",
+   "sha256": "441b290e7dc6334eb5023cd9b7937739298fdd66c104d4c96e5edcf642ae912d",
+   "size": 349696
+  },
+  "Msvcr71.dll": {
+   "role": "info",
+   "sha256": "8094af5ee310714caebccaeee7769ffb08048503ba478b879edfef5f1a24fefe",
+   "size": 348160
+  },
+  "Music/mus0000.dat": {
+   "role": "core",
+   "sha256": "90b35de068ab6e75586f5b06581a75a09526ef1cab179c9f4ebcddf01f45eb3d",
+   "size": 62223506
+  },
+  "Pysrc/AI_01.pyc": {
+   "role": "core",
+   "sha256": "881fb46dac4c10b462dbd9489f808236c91054810ef38d05bc1f1e3355518df3",
+   "size": 6174
+  },
+  "Pysrc/AI_02.pyc": {
+   "role": "core",
+   "sha256": "8d18970d094f106811796b5fc7af61a5f514be8a7e5422b28ead389d0c8f3dfc",
+   "size": 6174
+  },
+  "Pysrc/AI_03.pyc": {
+   "role": "core",
+   "sha256": "67cec657e8d35d64471c8f6edee62627834b572abb872b7387ecfbd93299b92c",
+   "size": 6169
+  },
+  "Pysrc/AI_04.pyc": {
+   "role": "core",
+   "sha256": "9788f549109c543dc2b6f8c5890c3e53cfb70e63ed4ac5778f34c2e5843c21b9",
+   "size": 6174
+  },
+  "Pysrc/AI_05.pyc": {
+   "role": "core",
+   "sha256": "1351999baab0d2b1b2d34ecc937f94165a6ff000acb13c2ce542b70d8457215b",
+   "size": 5435
+  },
+  "Pysrc/AI_06.pyc": {
+   "role": "core",
+   "sha256": "08edcf84d959f1c859e5cefac8e4c824a3b94d1cb2a769b47e7ae3b59299b70f",
+   "size": 6169
+  },
+  "Pysrc/AI_07.pyc": {
+   "role": "core",
+   "sha256": "19509a4b9f989ef0c5c806fd1b7471c17dad97197318c4d4646ee50f102f992e",
+   "size": 6174
+  },
+  "Pysrc/AI_08.pyc": {
+   "role": "core",
+   "sha256": "8dbdbca4bb04af8a2d78498be35fef2b444e63635a1f8ff038c506f5ddb3a533",
+   "size": 6169
+  },
+  "Pysrc/AI_09.pyc": {
+   "role": "core",
+   "sha256": "c05a524c4ae9ef200d2bbf5a43fd2735156e3371069869b849bf89af77872c52",
+   "size": 6169
+  },
+  "Pysrc/AI_10.pyc": {
+   "role": "core",
+   "sha256": "738a46a1e60484c2e3f3d8ddedffdbef33a8128df11565d3a7b7a0cfbaa5b518",
+   "size": 6174
+  },
+  "Pysrc/AI_11.pyc": {
+   "role": "core",
+   "sha256": "018f11eee0d0e2be470440ff9aefbef5ab001a4644cc9b9fd95a29f0bcb659be",
+   "size": 6174
+  },
+  "Pysrc/AI_12.pyc": {
+   "role": "core",
+   "sha256": "0bd421b6b63ab4e8e57c507e3fa789af80dcd81cb890de5cbbfd335064e564c5",
+   "size": 6169
+  },
+  "Pysrc/AI_13.pyc": {
+   "role": "core",
+   "sha256": "cce248070a4b0ce92333c3299d16106e0ac244af2bcbb8f4d1715348a3ff4b5d",
+   "size": 6169
+  },
+  "Pysrc/AI_14.pyc": {
+   "role": "core",
+   "sha256": "37b80ffe6b3a277cde8915abc27da19cc518a161551d46806ae8a72698311bba",
+   "size": 5435
+  },
+  "Pysrc/AI_15.pyc": {
+   "role": "core",
+   "sha256": "15034cf9ba12324369c43eb6b1df7d07e7dfaf2f4aabeb9fde5439f04e19c36c",
+   "size": 6174
+  },
+  "Pysrc/AI_16.pyc": {
+   "role": "core",
+   "sha256": "683450e50a90ec7564ac33ac75b128c09214ee359ca8b3e95afdfb68c6596a4a",
+   "size": 6174
+  },
+  "Pysrc/CardPy_01.pyc": {
+   "role": "core",
+   "sha256": "991096f22a7b6b11e8bfa9bedda59447eaee7aa4df7eaca84a86d5ce69f642ed",
+   "size": 1485
+  },
+  "Pysrc/CardPy_02.pyc": {
+   "role": "core",
+   "sha256": "37c2226468d58a6af31cc8d2fa72b89a3724d12b58d4fb2361f1ee3bcff2eabc",
+   "size": 1092
+  },
+  "Pysrc/CardPy_03.pyc": {
+   "role": "core",
+   "sha256": "f03b3c3f2f4ae75f34cab33a48c2bda0fb92aca8c1be7af47cc7b90831c936f5",
+   "size": 1233
+  },
+  "Pysrc/CardPy_04.pyc": {
+   "role": "core",
+   "sha256": "2a9d5f7b9b6e257864f1f2c43b57bc5d957d51e081de714efb884ae3d829b3a7",
+   "size": 1583
+  },
+  "Pysrc/CardPy_05.pyc": {
+   "role": "core",
+   "sha256": "502537803f80ef23f3ae11c7ae1b6dab5edab8dbd994e085b465c4f56ffd6c03",
+   "size": 1310
+  },
+  "Pysrc/CardPy_06.pyc": {
+   "role": "core",
+   "sha256": "5aa0ed412b95597829b2e46cd558ccde13d84961335cbb490eabed3f250c5104",
+   "size": 1098
+  },
+  "Pysrc/CardPy_07.pyc": {
+   "role": "core",
+   "sha256": "8575bb28030e305300de988f9752621b45abfb0f942998d3a9403483041d668f",
+   "size": 710
+  },
+  "Pysrc/CardPy_08.pyc": {
+   "role": "core",
+   "sha256": "50406b21388a5c035203c84eab980fc1a79c49ba6329611748e351a0b4f703e0",
+   "size": 715
+  },
+  "Pysrc/CardPy_09.pyc": {
+   "role": "core",
+   "sha256": "68116ff0028c315b4750563bf8f01ccf63599cd6b04535709a588bd6500b82bd",
+   "size": 1640
+  },
+  "Pysrc/CardPy_10.pyc": {
+   "role": "core",
+   "sha256": "e260907b8bc9763078180466b3a44c5942af621ca87c9d7162a05ad4187aac05",
+   "size": 2186
+  },
+  "Pysrc/CardPy_11.pyc": {
+   "role": "core",
+   "sha256": "f01a63be9872efc7c32f8ac426a070dfcd2b55913a3100f9aed8a98d168366a3",
+   "size": 1676
+  },
+  "Pysrc/CardPy_12.pyc": {
+   "role": "core",
+   "sha256": "90062d99562d20d46d7aa9eae3dc6f0f590dbacea69ab0236974b3bb5500e0fb",
+   "size": 2587
+  },
+  "Pysrc/CardPy_13.pyc": {
+   "role": "core",
+   "sha256": "a8cdc0bd2a1a7781d1b96517cfbda69a673aef3e4a4b299d8d7f13d6a8a69ef6",
+   "size": 1978
+  },
+  "Pysrc/CardPy_14.pyc": {
+   "role": "core",
+   "sha256": "ecd8f57654037e06fce71ec9f0765b5ab67e0b1432df15add8a4c7272ac944a1",
+   "size": 1250
+  },
+  "Pysrc/CardPy_15.pyc": {
+   "role": "core",
+   "sha256": "f5f085b384038f39723b2dbf7ef8906d87eb65d54aabac86ef00090a007e6d3f",
+   "size": 468
+  },
+  "Pysrc/CardPy_16.pyc": {
+   "role": "core",
+   "sha256": "49498fe2b021ed48158f4bd72bf3b07a05202f024d83196de6385b488ea51177",
+   "size": 1337
+  },
+  "Pysrc/CardPy_17.pyc": {
+   "role": "core",
+   "sha256": "904403ce852243af6784c4bc6c57b0d6a878033b35213ce313dd95b72c63b4b1",
+   "size": 1337
+  },
+  "Pysrc/CardPy_18.pyc": {
+   "role": "core",
+   "sha256": "47707f9ceb7077b1d2c5d3d18c72622223178ca55d8cc0f53badb12d2503ab0c",
+   "size": 1319
+  },
+  "Pysrc/CardPy_19.pyc": {
+   "role": "core",
+   "sha256": "b30ef58e07eb3fdaa80161e54ad958c4532218a9a371f563a9b6926a487c5c4b",
+   "size": 1275
+  },
+  "Pysrc/CardPy_20.pyc": {
+   "role": "core",
+   "sha256": "54e3113922036302f3b4c6f8cda8bd2e1a55caa8b5cb96ea005cba649aba8a5f",
+   "size": 1028
+  },
+  "Pysrc/CardPy_21.pyc": {
+   "role": "core",
+   "sha256": "496a80b6e14f3a010006496d2f56374b294fe4f5ae8c20679ab52fe2bea11230",
+   "size": 642
+  },
+  "Pysrc/CardPy_22.pyc": {
+   "role": "core",
+   "sha256": "0b5cbe0d8fe439022074ec12c139a310184acd0039eda015ba1804c38b39c3c8",
+   "size": 1162
+  },
+  "Pysrc/CardPy_23.pyc": {
+   "role": "core",
+   "sha256": "c17ddac74612662ad63bbbb96ac2ecfc4fac905b268fb8f67819a6c87ac4b28d",
+   "size": 835
+  },
+  "Pysrc/CardPy_25.pyc": {
+   "role": "core",
+   "sha256": "93405df3021270b0747ab83176f2f266adf5a30424e7a8fa4f4c98d4390db2c3",
+   "size": 1213
+  },
+  "Pysrc/CardPy_26.pyc": {
+   "role": "core",
+   "sha256": "cd141fa08ca4c891a04e54991bf135e6c5544e41573e6a5d8d4af822f263505c",
+   "size": 838
+  },
+  "Pysrc/CardPy_27.pyc": {
+   "role": "core",
+   "sha256": "82b89d211a09d10b4202d099acf7fb0f9926ba804aeade98eea6301c63b30e44",
+   "size": 1065
+  },
+  "Pysrc/CardPy_28.pyc": {
+   "role": "core",
+   "sha256": "97fdbbe1db688726b65c9ef75a217330bcc00e3e86a087adf903052555074764",
+   "size": 931
+  },
+  "Pysrc/CardPy_29.pyc": {
+   "role": "core",
+   "sha256": "ea88a537b3adc64a9a9c29d58801639e8d4614b006eca739b40aa17b09ec1aea",
+   "size": 1229
+  },
+  "Pysrc/CardPy_30.pyc": {
+   "role": "core",
+   "sha256": "15ca6741b023aa2147d6b0b9fa228f00f9fb35b2c3fdd595476db9e4f852755f",
+   "size": 1288
+  },
+  "Pysrc/CardPy_31.pyc": {
+   "role": "core",
+   "sha256": "502422e3ae6c3b533ecba0b72bedbccf621fe92465940160431cace828ee2ca1",
+   "size": 1708
+  },
+  "Pysrc/CardPy_32.pyc": {
+   "role": "core",
+   "sha256": "b079fede74ffdbef94c9a9ebd78f55f5a9c1a23b48323f7325c9b13e8911e4c8",
+   "size": 1588
+  },
+  "Pysrc/CardPy_33.pyc": {
+   "role": "core",
+   "sha256": "92158678456a5eb12d50f20135a0ac7b898565b75a6445193f8f160121502f55",
+   "size": 702
+  },
+  "Pysrc/CardPy_34.pyc": {
+   "role": "core",
+   "sha256": "12c4963e3d1f97752eca8ff757e3e4bf35c054560b7b15c578e77accf19b219f",
+   "size": 1066
+  },
+  "Pysrc/CardPy_35.pyc": {
+   "role": "core",
+   "sha256": "fa91c0e89a0dccc2574d151a76231eed7eeb0120090ab23c91192cbf1b84dff6",
+   "size": 1245
+  },
+  "Pysrc/CardPy_36.pyc": {
+   "role": "core",
+   "sha256": "1a36cffa8bb12a2784702689660fdfdca1fbd7bf763ad7dbeedc3a1b1a1696f6",
+   "size": 1467
+  },
+  "Pysrc/CardPy_37.pyc": {
+   "role": "core",
+   "sha256": "e44e5ada6723c4d06710371f6d6bb4aa3436d41e2025c8dd4a7c4e158fc8381a",
+   "size": 1198
+  },
+  "Pysrc/CardPy_38.pyc": {
+   "role": "core",
+   "sha256": "46122f5468e45a72501961dabbc5cb74a6732f25edce056efe79fbfdbce56531",
+   "size": 1198
+  },
+  "Pysrc/CardPy_39.pyc": {
+   "role": "core",
+   "sha256": "fc011eac694d8078b87414f14b2e369e3fdc2e29a340b5ee4d723ba14062a2e5",
+   "size": 1459
+  },
+  "Pysrc/CardPy_40.pyc": {
+   "role": "core",
+   "sha256": "e686bae3644a33840b0f81bd52d0b2831123391f58cfd03ea317332701ff55a7",
+   "size": 1386
+  },
+  "Pysrc/CardPy_41.pyc": {
+   "role": "core",
+   "sha256": "5319e9112cc25eacbd79c44a6bfe0c1e4c98fe6e7fca0b531553a6a1f5055a36",
+   "size": 1198
+  },
+  "Pysrc/CardPy_42.pyc": {
+   "role": "core",
+   "sha256": "eabf9391dadaa3e6271e27365b97874513e7863210ed31fe4e374cce77244c93",
+   "size": 1071
+  },
+  "Pysrc/CardPy_43.pyc": {
+   "role": "core",
+   "sha256": "2bdb982611a4ece2cd755d5c116b521950a0bc5b0320556b544801d996fe0b32",
+   "size": 1071
+  },
+  "Pysrc/CardPy_44.pyc": {
+   "role": "core",
+   "sha256": "35132d78931b6c4b74ca92dcfa5cd3996bc4241ae21d467ef8f11781f75dd219",
+   "size": 1071
+  },
+  "Pysrc/CardPy_45.pyc": {
+   "role": "core",
+   "sha256": "faa08c9e0760973131dabd7c4d778b7ce9d97c228e4eb154481ec904b4c69388",
+   "size": 1042
+  },
+  "Pysrc/CardPy_46.pyc": {
+   "role": "core",
+   "sha256": "1d6a16e0148927b3f2b0594adcc2d94df0afd8fde3cea7505f41beb2974bcd45",
+   "size": 847
+  },
+  "Pysrc/CardPy_47.pyc": {
+   "role": "core",
+   "sha256": "b3d62a7d14c224763c785c87e1b38918b9f8a6a11531560ed7bd23f6a9cccc46",
+   "size": 835
+  },
+  "Pysrc/CardPy_48.pyc": {
+   "role": "core",
+   "sha256": "b7a1f23f3e73c01ead7f22bb1dac20be49e5e1465fc899194313dbf1112e1995",
+   "size": 1312
+  },
+  "Pysrc/CardPy_49.pyc": {
+   "role": "core",
+   "sha256": "6f6778e1c203cacf0ee96dcf31de464fc5fd9ad9117054de05492091760dc1a2",
+   "size": 611
+  },
+  "Pysrc/CardPython.pyc": {
+   "role": "core",
+   "sha256": "7b23f2290969c2480625c5267c50a3469795585280ef4c134b3993d2131727c1",
+   "size": 464
+  },
+  "Pysrc/UserDict.pyc": {
+   "role": "core",
+   "sha256": "900f8e1967d75555c48e32bdb59ee718e1f660514b7cc3d63523f1cb7250cf14",
+   "size": 7769
+  },
+  "Pysrc/__future__.pyc": {
+   "role": "core",
+   "sha256": "f6b18ca6b5462c28264f449e8c7acb57ce572b45370dbcf32247ff6c19cb9738",
+   "size": 3503
+  },
+  "Pysrc/__init__.pyc": {
+   "role": "core",
+   "sha256": "6e969322cff469647ec3021bbcf67e0a9a5e0c75cfc595ef7becd52fb1836806",
+   "size": 3842
+  },
+  "Pysrc/aliases.pyc": {
+   "role": "core",
+   "sha256": "b3b481cf294e2e91a6438471ef901e311149515d01316f5ccd11edff5f0814c7",
+   "size": 8449
+  },
+  "Pysrc/codecs.pyc": {
+   "role": "core",
+   "sha256": "aabf3a088c80cb74cde3ba9043d5ef10b6dfb77705054f68ecb378452032ced1",
+   "size": 23683
+  },
+  "Pysrc/copy_reg.pyc": {
+   "role": "core",
+   "sha256": "d4bab1fee7d67c1f54b7836fdcefc1dcfcc70fcf39bd909d1a4eb375584e4659",
+   "size": 4833
+  },
+  "Pysrc/da01_1.pyc": {
+   "role": "core",
+   "sha256": "21c1adee6b24fdcccaa264fc8058cc525c20f0cd7a2b8c77ae92a13e66d70b19",
+   "size": 2900
+  },
+  "Pysrc/da01_2.pyc": {
+   "role": "core",
+   "sha256": "adafb0ebf3fcee34c192fc5c36225193f616c94cc4befa89cd7d448bd0e313a7",
+   "size": 2345
+  },
+  "Pysrc/da02_1.pyc": {
+   "role": "core",
+   "sha256": "873c6e379ff604c213b16884e5c94f0ec523019c0a74b018cb68c365f4f0e8fb",
+   "size": 1765
+  },
+  "Pysrc/da02_2.pyc": {
+   "role": "core",
+   "sha256": "6438c5c7c3c885681a72962f3d7cd69c309fc68feebb30d8885b25236d9342d0",
+   "size": 2423
+  },
+  "Pysrc/da03_1.pyc": {
+   "role": "core",
+   "sha256": "f913997f2df22f9faac154215e706b8efae113f94d9ac0630fc22b423d469920",
+   "size": 3588
+  },
+  "Pysrc/da03_3.pyc": {
+   "role": "core",
+   "sha256": "c724c1eba8ab428bcca1b9f60e7a89b8b181d0de722c0cc06cfa56a8505fdde1",
+   "size": 2220
+  },
+  "Pysrc/da04_1.pyc": {
+   "role": "core",
+   "sha256": "d21c4cc4e7f5331f6f6699138ebf4c4b7e64c933bf2a636b74503cad8c4c3283",
+   "size": 3542
+  },
+  "Pysrc/da04_3.pyc": {
+   "role": "core",
+   "sha256": "c6ae333b3b1668a2cdfefdc7af4b3f482aefda6052b553730f57cb1a4037939e",
+   "size": 2598
+  },
+  "Pysrc/da05_1.pyc": {
+   "role": "core",
+   "sha256": "cbbfd410950118efe8df03d75733a8c17969c5cc232a1661ac050837156604d4",
+   "size": 2241
+  },
+  "Pysrc/da05_2.pyc": {
+   "role": "core",
+   "sha256": "c01e067caf309a711152e52ec8cb6f3bb91b3877936af9b8473d404daa5f62e3",
+   "size": 3164
+  },
+  "Pysrc/da06_1.pyc": {
+   "role": "core",
+   "sha256": "6ddf2c5af85633d4b5ea3c102242a6e1d71eeadea919e51291e0ea7436a67341",
+   "size": 1671
+  },
+  "Pysrc/da06_2.pyc": {
+   "role": "core",
+   "sha256": "d4bf9c65492842bc1a9a9b1a743e99b58c06afb0606450fc38d92b806b615c2e",
+   "size": 2682
+  },
+  "Pysrc/da06_3.pyc": {
+   "role": "core",
+   "sha256": "772393178dd348271a382446b41858d145ea965f47330580f2f7cb2e26b6f1c0",
+   "size": 1297
+  },
+  "Pysrc/da07_1.pyc": {
+   "role": "core",
+   "sha256": "36d86a7cf72fa998a4bff4116672939b68c3984f02d66c818cb9f27b0900d6c6",
+   "size": 2962
+  },
+  "Pysrc/da07_2.pyc": {
+   "role": "core",
+   "sha256": "bdb7f7ab2fd634c13c83fa0c2619dec131bd875f785a9a10515c7ddf4af37155",
+   "size": 2637
+  },
+  "Pysrc/da08_1.pyc": {
+   "role": "core",
+   "sha256": "6e034081dd1ba0c267816590cf5903d3ea93ca9ea1e579115b5ed7dab9d225af",
+   "size": 1430
+  },
+  "Pysrc/da08_2.pyc": {
+   "role": "core",
+   "sha256": "899bd083e66ba2da22ca5a5e250e2c70aff45cf133ac1e3651e816adfa20462d",
+   "size": 1828
+  },
+  "Pysrc/da08_3.pyc": {
+   "role": "core",
+   "sha256": "ab42a6e6f6e238590bb6a69b6ac77a80d71e6aa16717cafbe3e88058c96f5aa6",
+   "size": 1576
+  },
+  "Pysrc/da09_1.pyc": {
+   "role": "core",
+   "sha256": "3d02a3d1e0e626834c146d99123625f481c0fa911a33150d556b409b11883b40",
+   "size": 1757
+  },
+  "Pysrc/da09_2.pyc": {
+   "role": "core",
+   "sha256": "6d990813a3608c7e2a902a77da0fde19a52fedd410ecc64c72fe155bf618cff8",
+   "size": 2773
+  },
+  "Pysrc/da10_1.pyc": {
+   "role": "core",
+   "sha256": "91f2276566beda3c6efce6dd20a0cec2c2682c209627c45d7803dc4f4812296d",
+   "size": 2381
+  },
+  "Pysrc/da10_2.pyc": {
+   "role": "core",
+   "sha256": "784a9d4c7d990f4505325c75a8e844409e0071f1666b07b6874f1af00bcdce9a",
+   "size": 4722
+  },
+  "Pysrc/da11_1.pyc": {
+   "role": "core",
+   "sha256": "84e0c060715b5f2bfed9dd7446a102a7c6e1850b2cf0a06131e3ab21ed6b5215",
+   "size": 1743
+  },
+  "Pysrc/da11_2.pyc": {
+   "role": "core",
+   "sha256": "1c06d9c2c3803b59fd313564371b11f5d5831ea8259dc342a2de30722becc6ff",
+   "size": 1472
+  },
+  "Pysrc/da12_1.pyc": {
+   "role": "core",
+   "sha256": "5790165038524bd5cdff2ed30e320b42e733f0d7c447b3c478cecd770051ddbc",
+   "size": 1611
+  },
+  "Pysrc/da12_2.pyc": {
+   "role": "core",
+   "sha256": "556af3824db7a004b4029d0284d82f2b9256e75cd4fafee4b0663c53a3fda4b1",
+   "size": 2719
+  },
+  "Pysrc/da13_1.pyc": {
+   "role": "core",
+   "sha256": "ff48cfcf2f6f7973abc734e46aacbcc83dc0bc5790a75db335051a3428e1959d",
+   "size": 2259
+  },
+  "Pysrc/da13_2.pyc": {
+   "role": "core",
+   "sha256": "ec464efb701774a0f555929e977a8a88c11bda6ef93e8ca1b7ab0da9e9b7246e",
+   "size": 1968
+  },
+  "Pysrc/da13_3.pyc": {
+   "role": "core",
+   "sha256": "2a6211f5c5766e6df84d9f2789bf84732b89bb21f676ecc6da7cbd17466339dc",
+   "size": 1703
+  },
+  "Pysrc/da14_1.pyc": {
+   "role": "core",
+   "sha256": "9111bd28191db36e0f5f46c7a9b9e045921122da045d6181482fee3f0cb02fd9",
+   "size": 2291
+  },
+  "Pysrc/da14_2.pyc": {
+   "role": "core",
+   "sha256": "d28f2fc191e9504e26aba5f41183cedba7feedbb58bf0f11a07b98c8180d8587",
+   "size": 4690
+  },
+  "Pysrc/da14_3.pyc": {
+   "role": "core",
+   "sha256": "ad34721a55193b233e9e280b342d2e3433b0e1d33da7ca942b6393e3709a6146",
+   "size": 1177
+  },
+  "Pysrc/da14_4.pyc": {
+   "role": "core",
+   "sha256": "1b17e18a13f48743163e6e55746f55c53447c2ed9993573965ad12ae44947793",
+   "size": 1379
+  },
+  "Pysrc/da15_1.pyc": {
+   "role": "core",
+   "sha256": "7ce20b217972d81d5fe6626aa8d4627a27a2121d16937f0d3f936b5d1b0f0dfb",
+   "size": 3238
+  },
+  "Pysrc/da15_3.pyc": {
+   "role": "core",
+   "sha256": "43d817ce9992bd008d1cd6523cd05cb1ec5e426e74e3542619b2260bb8020391",
+   "size": 3027
+  },
+  "Pysrc/da16_1.pyc": {
+   "role": "core",
+   "sha256": "a359f45642eb2269b466a97d23b10165f684e87c6a830053c607d21dc69dde85",
+   "size": 5645
+  },
+  "Pysrc/da16_4.pyc": {
+   "role": "core",
+   "sha256": "5ddd93984630006340601ae96d1af47b42414dc59364d37bb332d31d6572cb9f",
+   "size": 2621
+  },
+  "Pysrc/da17_1.pyc": {
+   "role": "core",
+   "sha256": "b4f730fa5c0fbb44febf864c57c810bccf7f284a77e26393eb9095b7e7360fd3",
+   "size": 1477
+  },
+  "Pysrc/da17_2.pyc": {
+   "role": "core",
+   "sha256": "2af2bc90219c5e3f98105b0d4c3ed0ec4225d0c557e5c539cdd118ef94f564e6",
+   "size": 6154
+  },
+  "Pysrc/da17_3.pyc": {
+   "role": "core",
+   "sha256": "f98257304f0abf44ad93d796d49971fcc6cee98eb44e43e2c4f67eed9b6fe67f",
+   "size": 538
+  },
+  "Pysrc/gbk.pyc": {
+   "role": "core",
+   "sha256": "05542e6a07d21b70cb59cb081e994d372b051bf85fc5e27a1f9402efdb451858",
+   "size": 1492
+  },
+  "Pysrc/linecache.pyc": {
+   "role": "core",
+   "sha256": "ece6c92b60ce27d8e793b454ab38fe9fa2e37f260d1ae4089aab37f2c35f7d5a",
+   "size": 2678
+  },
+  "Pysrc/locale.pyc": {
+   "role": "core",
+   "sha256": "06176ee83c1519412cbac04cb983efd2d233234ca7aba7a3bad96083555628f9",
+   "size": 19907
+  },
+  "Pysrc/ntpath.pyc": {
+   "role": "core",
+   "sha256": "2d0aba6ad0a5394988bfd28c448cd49e10b7aad69a2cdfaf8e442a9727cf09a8",
+   "size": 11893
+  },
+  "Pysrc/os.pyc": {
+   "role": "core",
+   "sha256": "026f025338146cb7f26f681dbe7d187f664027654160ed5f728c2a272c1e5757",
+   "size": 24426
+  },
+  "Pysrc/random.pyc": {
+   "role": "core",
+   "sha256": "5ed7bb9869f688e3c4520bcc8f7a2f4021740be11eb5961ee4a5514b6a935ea9",
+   "size": 21384
+  },
+  "Pysrc/site.pyc": {
+   "role": "core",
+   "sha256": "72edb0f6d1c30b36a5b79c1c7d8e4c4d1ee4f20723318fd2d2269f7a5feee135",
+   "size": 13546
+  },
+  "Pysrc/stat.pyc": {
+   "role": "core",
+   "sha256": "a3fdc2bee76d1dee86e84b2c5e5fb16d720d8eb72205cb7572fe96983dd6a9cd",
+   "size": 2450
+  },
+  "Pysrc/types.pyc": {
+   "role": "core",
+   "sha256": "b88d252f64318bc4d8e4fba6f106efeaa757812783630587f49a8e62d5abead8",
+   "size": 2552
+  },
+  "Pysrc/warnings.pyc": {
+   "role": "core",
+   "sha256": "24c5434ba7c3e4b1187d5845b8501c7232b36dfdf3a0158795881e64d278f2af",
+   "size": 7920
+  },
+  "Python24.dll": {
+   "role": "info",
+   "sha256": "85e590546b9e367d333b5d7d31b576ccc593bc93c033c549b601ec15dfe36bc3",
+   "size": 1867776
+  },
+  "RichMan8.exe": {
+   "role": "info",
+   "sha256": "5d4753ec0dfedf9287d941d5e49cfb0f6cca2de309c6f0e1ad983e068712b416",
+   "size": 2187264
+  },
+  "Richman.dll": {
+   "role": "info",
+   "sha256": "56608ee82d530cdf4770d9f8daa4edd713cdc060ef7cdf99c6579d120f4678c4",
+   "size": 65536
+  },
+  "Sound/snd0000.dat": {
+   "role": "core",
+   "sha256": "9e7350e7bbbbae44ef423a871b8777706deb20711106b322f2a47a753a31c0ce",
+   "size": 265598754
+  },
+  "Texture/tex0000.dat": {
+   "role": "core",
+   "sha256": "d93fbe21b520ef1ed28d72eddef0c57d102efaeedc66add67b6b2234637996f2",
+   "size": 697524730
+  },
+  "Texture/tex0001.dat": {
+   "role": "core",
+   "sha256": "b60bbe1f36de530d2630a52a0e4b633c25313d7d34fc466395522af404d3a5d7",
+   "size": 794812
+  }
+ },
+ "id": "tc",
+ "name": "大富翁8 繁体中文版（旧版安装，Big5；开发参考，将换成干净的旧版）",
+ "raw_copy": [
+  "Clump/clump0000.dat",
+  "Texture/tex0000.dat",
+  "Texture/tex0001.dat",
+  "Sound/snd0000.dat",
+  "Music/mus0000.dat",
+  "Pysrc/AI_01.pyc",
+  "Pysrc/AI_02.pyc",
+  "Pysrc/AI_03.pyc",
+  "Pysrc/AI_04.pyc",
+  "Pysrc/AI_05.pyc",
+  "Pysrc/AI_06.pyc",
+  "Pysrc/AI_07.pyc",
+  "Pysrc/AI_08.pyc",
+  "Pysrc/AI_09.pyc",
+  "Pysrc/AI_10.pyc",
+  "Pysrc/AI_11.pyc",
+  "Pysrc/AI_12.pyc",
+  "Pysrc/AI_13.pyc",
+  "Pysrc/AI_14.pyc",
+  "Pysrc/AI_15.pyc",
+  "Pysrc/AI_16.pyc",
+  "Pysrc/CardPy_01.pyc",
+  "Pysrc/CardPy_02.pyc",
+  "Pysrc/CardPy_03.pyc",
+  "Pysrc/CardPy_04.pyc",
+  "Pysrc/CardPy_05.pyc",
+  "Pysrc/CardPy_06.pyc",
+  "Pysrc/CardPy_07.pyc",
+  "Pysrc/CardPy_08.pyc",
+  "Pysrc/CardPy_09.pyc",
+  "Pysrc/CardPy_10.pyc",
+  "Pysrc/CardPy_11.pyc",
+  "Pysrc/CardPy_12.pyc",
+  "Pysrc/CardPy_13.pyc",
+  "Pysrc/CardPy_14.pyc",
+  "Pysrc/CardPy_15.pyc",
+  "Pysrc/CardPy_16.pyc",
+  "Pysrc/CardPy_17.pyc",
+  "Pysrc/CardPy_18.pyc",
+  "Pysrc/CardPy_19.pyc",
+  "Pysrc/CardPy_20.pyc",
+  "Pysrc/CardPy_21.pyc",
+  "Pysrc/CardPy_22.pyc",
+  "Pysrc/CardPy_23.pyc",
+  "Pysrc/CardPy_25.pyc",
+  "Pysrc/CardPy_26.pyc",
+  "Pysrc/CardPy_27.pyc",
+  "Pysrc/CardPy_28.pyc",
+  "Pysrc/CardPy_29.pyc",
+  "Pysrc/CardPy_30.pyc",
+  "Pysrc/CardPy_31.pyc",
+  "Pysrc/CardPy_32.pyc",
+  "Pysrc/CardPy_33.pyc",
+  "Pysrc/CardPy_34.pyc",
+  "Pysrc/CardPy_35.pyc",
+  "Pysrc/CardPy_36.pyc",
+  "Pysrc/CardPy_37.pyc",
+  "Pysrc/CardPy_38.pyc",
+  "Pysrc/CardPy_39.pyc",
+  "Pysrc/CardPy_40.pyc",
+  "Pysrc/CardPy_41.pyc",
+  "Pysrc/CardPy_42.pyc",
+  "Pysrc/CardPy_43.pyc",
+  "Pysrc/CardPy_44.pyc",
+  "Pysrc/CardPy_45.pyc",
+  "Pysrc/CardPy_46.pyc",
+  "Pysrc/CardPy_47.pyc",
+  "Pysrc/CardPy_48.pyc",
+  "Pysrc/CardPy_49.pyc",
+  "Pysrc/CardPython.pyc",
+  "Pysrc/UserDict.pyc",
+  "Pysrc/__future__.pyc",
+  "Pysrc/__init__.pyc",
+  "Pysrc/aliases.pyc",
+  "Pysrc/codecs.pyc",
+  "Pysrc/copy_reg.pyc",
+  "Pysrc/da01_1.pyc",
+  "Pysrc/da01_2.pyc",
+  "Pysrc/da02_1.pyc",
+  "Pysrc/da02_2.pyc",
+  "Pysrc/da03_1.pyc",
+  "Pysrc/da03_3.pyc",
+  "Pysrc/da04_1.pyc",
+  "Pysrc/da04_3.pyc",
+  "Pysrc/da05_1.pyc",
+  "Pysrc/da05_2.pyc",
+  "Pysrc/da06_1.pyc",
+  "Pysrc/da06_2.pyc",
+  "Pysrc/da06_3.pyc",
+  "Pysrc/da07_1.pyc",
+  "Pysrc/da07_2.pyc",
+  "Pysrc/da08_1.pyc",
+  "Pysrc/da08_2.pyc",
+  "Pysrc/da08_3.pyc",
+  "Pysrc/da09_1.pyc",
+  "Pysrc/da09_2.pyc",
+  "Pysrc/da10_1.pyc",
+  "Pysrc/da10_2.pyc",
+  "Pysrc/da11_1.pyc",
+  "Pysrc/da11_2.pyc",
+  "Pysrc/da12_1.pyc",
+  "Pysrc/da12_2.pyc",
+  "Pysrc/da13_1.pyc",
+  "Pysrc/da13_2.pyc",
+  "Pysrc/da13_3.pyc",
+  "Pysrc/da14_1.pyc",
+  "Pysrc/da14_2.pyc",
+  "Pysrc/da14_3.pyc",
+  "Pysrc/da14_4.pyc",
+  "Pysrc/da15_1.pyc",
+  "Pysrc/da15_3.pyc",
+  "Pysrc/da16_1.pyc",
+  "Pysrc/da16_4.pyc",
+  "Pysrc/da17_1.pyc",
+  "Pysrc/da17_2.pyc",
+  "Pysrc/da17_3.pyc",
+  "Pysrc/gbk.pyc",
+  "Pysrc/linecache.pyc",
+  "Pysrc/locale.pyc",
+  "Pysrc/ntpath.pyc",
+  "Pysrc/os.pyc",
+  "Pysrc/random.pyc",
+  "Pysrc/site.pyc",
+  "Pysrc/stat.pyc",
+  "Pysrc/types.pyc",
+  "Pysrc/warnings.pyc"
+ ],
+ "recorded": "2026-11-15",
+ "status": "legacy"
+}
