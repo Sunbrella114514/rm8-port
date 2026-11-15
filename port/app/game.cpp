@@ -275,6 +275,7 @@ bool rm8GameMessage(int me, int cmd, int a, int b)
 	case 0x1D: {	// [V] Role_OnArriveNode @0x4861a0
 		int node = a;
 		const Rm8RoadNode *n = node >= 0 && node < (int)g_s->rnodes.size() ? &g_s->rnodes[node] : nullptr;
+		{ static const bool dbg = getenv("RM8_DEBUG_EVENTS") != nullptr; if(dbg) rm8Log("rules: seat %d arrives at node %d (event %d, shape %d)", me, node, n ? n->event : -1, g_r[me].shape); }
 		if(n && n->event > 0 && n->event != 7 && n->event != 8 && g_r[me].shape != 6){ rm8EventLand(me, n->event, node); return true; }	// [V] Role_TriggerLandEvent (events.cpp)
 		if(rm8EventWonderNode(me, node)) return true;	// [V] Role_OnArriveNode @0x4861a0 -> Role_TriggerLandLevelEvent @0x4863f0: a wonder site starts its event (no 0x12 / 0x11 then)
 		rm8TurnEnqueue(me, 0x12, node, 0);
@@ -574,6 +575,7 @@ void rm8GameSubMoney(int r, long v, bool depositFirst){ if(validR(r) && v > 0) s
 void rm8GameSetMoney(int r, long cash, long deposit){ if(validR(r)){ g_r[r].cash = cash; g_r[r].deposit = deposit; } }
 void rm8GameAddPoints(int r, long v){ if(validR(r)) g_r[r].points = std::max(0L, g_r[r].points + v); }
 int rm8GameRand(){ return rnd(); }
+void rm8GameReseed(unsigned s){ g_seed = s; }
 int rm8GamePushText(const std::string &t){ return pushText(t); }
 int rm8GamePushTextPicFile(const std::string &t, const std::string &pack){ int i = pushText(t); if(!pack.empty()) g_textPicFile[i] = pack; return i; }
 int rm8GamePushTextPic(const std::string &t, int uvl){ int i = pushText(t); if(uvl > 0) g_textPic[i] = uvl; return i; }

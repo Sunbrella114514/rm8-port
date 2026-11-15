@@ -483,6 +483,10 @@ void actNewGame()
 			if(o && onLand(*o, cur)) rm8Log("npc test: %d placed on node %d (%d steps ahead of seat 0)", id, cur, k);
 		}
 	}
+	if(const char *e = getenv("RM8_NPC_AT")){	// [A] "seat:node" (bug 44 test hook): that seat stands on that road node index
+		int seat = 0, n = 0;
+		if(sscanf(e, "%d:%d", &seat, &n) == 2 && validSeat(seat)){ int nb[16], c = rm8TurnLinks(n, nb, 16); rm8TurnPlaceAt(seat, n, c > 0 ? nb[0] : n); rm8Log("npc test: seat %d placed on node %d", seat, n); }
+	}
 	if(const char *e = getenv("RM8_NPC_MOVE")){	// "seat@k": that seat stands k steps ahead of seat 0
 		int seat = 1, k = 2;
 		if(sscanf(e, "%d@%d", &seat, &k) == 2 && validSeat(seat)){ int n = ahead(k), nb[16], c = rm8TurnLinks(n, nb, 16); rm8TurnPlaceAt(seat, n, c > 0 ? nb[0] : n); rm8Log("npc test: seat %d moved to node %d", seat, n); }

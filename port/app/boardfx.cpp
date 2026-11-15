@@ -416,7 +416,8 @@ bool glowProject(Camera *cam, const V3d &p, float &sx, float &sy)
 	if(zc < 1.0f) return false;
 	float W = (float)cam->frameBuffer->width, H = (float)cam->frameBuffer->height;
 	sx = (0.5f - xc / (2.0f * cam->viewWindow.x * zc)) * W; sy = (0.5f - yc / (2.0f * cam->viewWindow.y * zc)) * H;
-	return sx > 30.0f && sx < W - 30.0f && sy > 30.0f && sy < H - 100.0f;
+	float k = H / 600.0f;	// [A] the margins are pixels of the original 800 x 600 window: scaled to the real size (the phone's 1904 px high HUD bar is ~12 %, not 100 px)
+	return sx > 30.0f * k && sx < W - 30.0f * k && sy > 30.0f * k && sy < H - 100.0f * k;
 }
 void glowTest(Camera *cam)
 {

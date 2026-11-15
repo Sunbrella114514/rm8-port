@@ -22,8 +22,28 @@ Rm8Ui *g_main = nullptr, *g_ok = nullptr, *g_biz = nullptr, *g_info = nullptr, *
 bool g_goShown = false, g_goHot = false;
 bool g_evGo = false; void (*g_evThrow)(void *) = nullptr; void *g_evArg = nullptr;	// the event dialogs' one-die go panel
 int g_goFace[3] = {0, 0, 0};
-// [V] Dice_RollAndDisplay @0x4e8870: slots 2..4 show random faces (uvlist 0x2C5 + face)
-void goRollFaces(){ for(int k = 0; k < 3; k++){ g_goFace[k] = rand() % 6; rm8UiSetPic(g_go, 2 + k, 0x2C5 + g_goFace[k]); } }
+int g_goSig = -1;	// vehicle / slot flags the go panel shows (Role_OnBeforeDice_004813c0 runs when they change)
+// [V] the slot flags of the dialog (+0xC..+0x14, set 1 by Cls_5e23e8__vf10_OnLoad @0x4e8680, then u_Ui_SetSlotState from the role's flags): slot 1 is always on;
+// the one-die event panel (g_evGo) has no toggles
+bool goSlotOn(int k)
+{
+	if(k == 0) return true;
+	int cur = rm8TurnCurrent();
+	return !g_evGo && cur >= 0 && rm8TurnDiceSlotOn(cur, k + 1);
+}
+// [V] Dice_RollAndDisplay @0x4e8870: the slots whose flag is on (widgets 2..4) show random faces (uvlist 0x2C5 + face); a slot that is off keeps its face and picture. all: the load-time call (all flags 1)
+void goRollFaces(bool all = false){ for(int k = 0; k < 3; k++){ if(!all && !goSlotOn(k)) continue; g_goFace[k] = rand() % 6; rm8UiSetPic(g_go, 2 + k, 0x2C5 + g_goFace[k]); } }
+// [V] Role_OnBeforeDice_004813c0 @0x4813c0: Dice_HideSlotsByCount @0x4e8950 (widgets 3 / 4 by the vehicle's dice count, their toggle buttons 5 / 6 are their children),
+// then u_Ui_SetSlotState @0x4e89c0 for the slots 2 / 3: picture 0x2C5 + face when on, 0x35E + face (the greyed die) when off
+void goShowSlots(int maxDice)
+{
+	for(int k = 1; k < 3; k++){
+		bool vis = maxDice > k;
+		rm8UiSetVisible(g_go, 2 + k, vis);
+		if(vis) rm8UiSetPic(g_go, 2 + k, (goSlotOn(k) ? 0x2C5 : 0x35E) + g_goFace[k]);
+	}
+}
+int goSignature(){ int cur = rm8TurnCurrent(); int m = g_evGo ? 1 : rm8TurnDiceMax(cur); return m | (goSlotOn(1) ? 4 : 0) | (goSlotOn(2) ? 8 : 0); }
 int g_modalSeat = -1;
 std::string g_pic[8];
 const char *NUM2 = "font\\number2.tga";
@@ -55,7 +75,8 @@ void rm8HudInit(const std::vector<std::string> &pics)
 	if(g_biz) rm8UiOnClick(g_biz, [](int id){ if(id >= 2 && id <= 4) rm8TurnModalResult(g_modalSeat, id); });
 	if(g_supply) rm8UiOnClick(g_supply, [](int id){ if(id == 2 || id == 3) rm8TurnModalResult(g_modalSeat, id == 2 ? 1 : 0); });	// [V] like okcancel: OK 2 -> 1, CANCEL 3 -> 0; message 0x79 @0x481df0 acts on a non-zero result
 	// [V] Cls_5e23e8__vf10_OnLoad @0x4e8680: button 1 -> Game_TriggerRollDice (state 6 only)
-	if(g_go){ rm8UiOnClick(g_go, [](int id){ if(id != 1) return; if(g_evGo){ if(g_evThrow) g_evThrow(g_evArg); } else rm8RolesHumanRoll(); }); goRollFaces(); }
+	if(g_go){ rm8UiOnClick(g_go, [](int id){ if((id == 5 || id == 6) && !g_evGo){ rm8TurnToggleDiceSlot(rm8TurnCurrent(), id - 3); return; }	// [V] Cls_5e23e8__vf10_OnLoad @0x4e8680: widgets 5 / 6 -> Ui_ToggleDiceSlotOnSelect @0x4e8410 (slot 2 / 3; state 6 only)
+		if(id != 1) return; if(g_evGo){ if(g_evThrow) g_evThrow(g_evArg); } else rm8RolesHumanRoll(); }); goRollFaces(true); }
 }
 
 // [V] u_Game_OnButton_RoleFindNext @0x4e8e90 -> Role_FindNext @0x4983f0 (seat hexagons 1..4): only while the current role waits for the dice (state 6),
@@ -129,14 +150,16 @@ void rm8HudRender(Camera *cam)
 	waiting = waiting || g_evGo;
 	if(g_go){
 		if(waiting && !g_goShown){	// [V] Role_OnBeforeDice_004813c0 + vf7: slots 3 / 4 by the dice count, new faces
-			int n = g_evGo ? 1 : rm8TurnDiceMax(cur);	// [V] an event die: one slot
-			rm8UiSetVisible(g_go, 3, n >= 2); rm8UiSetVisible(g_go, 4, n >= 3);
 			goRollFaces();
+			g_goSig = goSignature(); goShowSlots(g_goSig & 3);
+		}else if(waiting && goSignature() != g_goSig){	// [V] the vehicle changed / a slot was toggled: Role_OnBeforeDice_004813c0(0) redraws the slots (the faces stay)
+			g_goSig = goSignature(); goShowSlots(g_goSig & 3);
 		}
+		if(!waiting) g_goSig = -1;
 		g_goShown = waiting; rm8UiShow(g_go, waiting);
-		// [V] MouseOn callbacks 5 / 6 of button 1: rolling picture 0x200 on the slots, new random faces when left
+		// [V] MouseOn callbacks 5 / 6 of button 1: rolling picture 0x200 on the slots that are on (Dice_ShowRollingImagePlaySound @0x4e8780), new random faces when left
 		bool hot = waiting && rm8UiHot(g_go, 1);
-		if(hot && !g_goHot) for(int k = 0; k < 3; k++) rm8UiSetPic(g_go, 2 + k, 0x200);
+		if(hot && !g_goHot) for(int k = 0; k < 3; k++) if(goSlotOn(k)) rm8UiSetPic(g_go, 2 + k, 0x200);
 		if(!hot && g_goHot) goRollFaces();
 		g_goHot = hot;
 	}

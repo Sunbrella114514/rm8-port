@@ -36,7 +36,8 @@ void rm8SaveRolesRoleSet(int seat, const Rm8SaveRole &o)
 	r.waitT = 0; r.spinning = false; r.tw = false; r.twScale = r.twTScale = 1; r.twOff = r.twTOff = {0, 0, 0};
 	int want = std::max(1, std::min(3, o.vehicle));
 	if(want != r.diceMax) rm8TurnSetVehicle(seat, want);	// [V] Role_SetTrfTool @0x48a0c0 (model set + speed; the dice count follows)
-	r.diceMax = want; r.diceCount = std::max(1, std::min(3, o.dice));
+	if(r.diceMax != want) diceSetMax(r, want);
+	diceSetCount(r, std::max(1, std::min(want, o.dice)));	// [V] CPlayerTag__LoadFromStream @0x4923b0: Role_SetTrfTool(vehicle), then Dice_SetCount(count) (only when count <= max): the count is stored, the slot flags are rebuilt (slots 1..count on)
 	if(r.from != r.to) calcAngle(r, nodePos(r.from), nodePos(r.to), false);
 	playAnim(r, 2, false); updateAnim(r, 0); placeModel(r);
 }

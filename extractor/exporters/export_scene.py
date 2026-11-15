@@ -357,9 +357,15 @@ def main():
         r = p['result']
         if r and r['type'] in (1, 2):
             terra_of[r['handle']] = len(terras); terras.append(r)
-    # [V] BuildObj_CreateEvent @0x4f19e0: a tile without an event id whose plot word is a special building gets the event of that building:
-    # 100 power company -> 0xF, 101 ticket center -> 0x10, 102 magic house -> 0xD, 103 court -> 0xE (the node triggers it, there is no icon / model)
-    special = {p['anchor']: {100: 0xF, 101: 0x10, 102: 0xD, 103: 0xE}[p['type']] for p in placed if p['type'] in (100, 101, 102, 103)}
+    # [V] BuildObj_CreateEvent @0x4f19e0 (called by Land_CreateObject_f1320 for EVERY road tile): a tile without an event id whose own plot word
+    # (+0x44, low byte) is a special building gets the event of that building: 100 power company -> 0xF, 101 ticket center -> 0x10,
+    # 102 magic house -> 0xD, 103 court -> 0xE (no icon / model). The building's frontage is two road tiles that both carry the word,
+    # so both trigger it (only the anchor tile used to: stopping on the other one did nothing).
+    SPECIAL_EV = {100: 0xF, 101: 0x10, 102: 0xD, 103: 0xE}
+    special = {p['anchor']: SPECIAL_EV[p['type']] for p in placed if p['type'] in SPECIAL_EV}
+    for i in range(W * H):
+        if int(m['road'].flat[i]) != 0 and (int(m['plot'].flat[i]) & 0xff) in SPECIAL_EV:
+            special[i] = SPECIAL_EV[int(m['plot'].flat[i]) & 0xff]
     for i in range(W * H):
         if int(m['road'].flat[i]) == 0: continue
         c = grid.center(i)

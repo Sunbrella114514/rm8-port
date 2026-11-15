@@ -512,7 +512,7 @@ static void renderArticleAtomic(Atomic *a, int pass)
 // of a blinking plot is darkened) and Art_UpdateGlowAlpha @0x441740 + CArticleMgr__vf5_SetRenderMode @0x43b210 mode 3 (an article between the camera and a role is
 // drawn with alpha 0.4 in the later pass instead of the opaque one). Materials are per clump, so the colours are edited in place and restored from `orig`.
 namespace {
-struct ArtMod { std::vector<std::pair<Material*, RGBA>> orig; int grey = 255; float alpha = 1.0f; };
+struct ArtMod { std::vector<std::pair<Material*, RGBA>> orig; std::vector<std::pair<Geometry*, uint32>> geos; int grey = 255; float alpha = 1.0f; };
 std::unordered_map<Clump*, ArtMod> g_artMod;
 ArtMod &artMod(Clump *c)
 {
@@ -522,9 +522,15 @@ ArtMod &artMod(Clump *c)
 	FORLIST(lnk, c->atomics){
 		Geometry *g = Atomic::fromClump(lnk)->geometry;
 		if(!g) continue;
+		bool dup = false; for(auto &o : m.geos) dup |= o.first == g;
+		if(!dup) m.geos.push_back({g, g->flags});
+		// [A] a geometry without rpGEOMETRYMODULATEMATERIALCOLOR (0x40, the map buildings: flags 0x3f) ignores the material colour: the GL pipelines (rwgl3.h setMaterial)
+		// use white, so the grey / alpha edit below would do nothing (bug 44: the see-through cathedral spire stayed opaque in front of the role). While a mod is active the
+		// flag is set and the base colour of such a material is white (= what it was drawn with), see artModApply
+		bool plain = false;	// [A] reverted (user, 2026-11-16): like the original's fixed-function pipeline, a geometry without MODULATE keeps ignoring the material colour, so such scenery stays opaque
 		for(int i = 0; i < g->matList.numMaterials; i++) if(Material *mat = g->matList.materials[i]){
 			bool seen = false; for(auto &o : m.orig) seen |= o.first == mat;
-			if(!seen) m.orig.push_back({mat, mat->color});
+			if(!seen) m.orig.push_back({mat, plain ? RGBA{255, 255, 255, 255} : mat->color});
 		}
 	}
 	return m;
@@ -532,6 +538,8 @@ ArtMod &artMod(Clump *c)
 void artModApply(Clump *c)
 {
 	ArtMod &m = artMod(c);
+	bool active = m.grey < 255 || m.alpha < 1.0f;
+	(void)active; for(auto &g : m.geos) g.first->flags = g.second;
 	for(auto &o : m.orig) o.first->color = {uint8(o.second.red * m.grey / 255), uint8(o.second.green * m.grey / 255), uint8(o.second.blue * m.grey / 255), uint8(o.second.alpha * m.alpha)};
 }
 }

@@ -44,7 +44,7 @@
   "source": "scripts/export_questions.py"
  },
  "export_roles.py": {
-  "sha256": "c84a1e97c753b2eaade7ac0d4a3fb0b5cbe7f7cbaa9489afb9d190dc7227c836",
+  "sha256": "f4c82cb0df1fdbda819e103078c892d9b930fb23f6bfbd34e9a7722b274eb34f",
   "source": "scripts/export_roles.py"
  },
  "export_save_big5.py": {
@@ -56,7 +56,7 @@
   "source": "scripts/export_save_terra_order.py"
  },
  "export_scene.py": {
-  "sha256": "b07475144a4e1398d689b3545a841173296de9747788ac56bad5535f281543db",
+  "sha256": "7dab917fad8a4fde888402d68a2356ad5da1c51a654cede50c18faf46374b799",
   "source": "scripts/export_scene.py"
  },
  "export_stages.py": {

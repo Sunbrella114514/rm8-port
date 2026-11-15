@@ -32,6 +32,7 @@ def third_party_imports():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--venv', default=os.path.join(EXT, 'build', 'venv'))
+    ap.add_argument('--dist', default=os.path.join(EXT, 'build', 'dist'), help='output folder (another one when the old exe is still running)')
     a = ap.parse_args()
     chk = subprocess.run([sys.executable, '-I', os.path.join(HERE, 'sync_exporters.py'), '--check'], capture_output=True, text=True)
     if chk.returncode:
@@ -39,7 +40,7 @@ def main():
     py = os.path.join(a.venv, 'Scripts', 'python.exe')
     hidden = third_party_imports() + ['PIL.Image', 'PIL.PngImagePlugin', 'PIL.TgaImagePlugin', 'PIL.BmpImagePlugin', 'tkinter', 'tkinter.filedialog']
     cmd = [py, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--console', '--name', 'rm8_extract',
-           '--distpath', os.path.join(EXT, 'build', 'dist'), '--workpath', os.path.join(EXT, 'build', 'work'), '--specpath', os.path.join(EXT, 'build'),
+           '--distpath', a.dist, '--workpath', os.path.join(EXT, 'build', 'work'), '--specpath', os.path.join(EXT, 'build'),
            '--paths', EXT,
            '--add-data', os.path.join(EXT, 'data') + ';data', '--add-data', os.path.join(EXT, 'exporters') + ';exporters']
     for m in sorted(set(hidden)):
@@ -49,9 +50,9 @@ def main():
     r = subprocess.run(cmd)
     if r.returncode:
         return r.returncode
-    exe = os.path.join(EXT, 'build', 'dist', 'rm8_extract.exe')
+    exe = os.path.join(a.dist, 'rm8_extract.exe')
     h = hashlib.sha256(open(exe, 'rb').read()).hexdigest()
-    open(os.path.join(EXT, 'build', 'dist', 'SHA256SUMS.txt'), 'w').write('%s  rm8_extract.exe\n' % h)
+    open(os.path.join(a.dist, 'SHA256SUMS.txt'), 'w').write('%s  rm8_extract.exe\n' % h)
     print('built %s (%.1f MB) sha256 %s' % (exe, os.path.getsize(exe) / 1e6, h))
     return 0
 

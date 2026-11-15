@@ -543,6 +543,14 @@ int main(int argc, char *argv[])
 		loadMap(idx);
 		rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, o.tx, o.tz); rm8RolesSetCamera(cam);	// the same-node placement of the loaded roles (Game_MoveRoleToPosition) needs the camera axes
 		if(!rm8SaveApply(err)){ rm8Log("load: %s", err.c_str()); return false; }
+		// [V] the original keeps the C runtime rand() state out of the record (Game_WriteRecordToFile @0x4a7540), so a reloaded game rolls other dice ("SL"):
+		// interactive loads draw fresh seeds for the dice, the rules rand() and Python's random; the save round-trip tests (shot / frames runs, RM8_SAVE_EXACT)
+		// keep the stored ones for byte-identical replays
+		if(g_shotArg.empty() && g_framesArg <= 0 && !getenv("RM8_SAVE_EXACT")){
+			unsigned s = (unsigned)time(nullptr) ^ (SDL_GetTicks() * 2654435761u);
+			rm8DiceSeed(s * 7 + 3); rm8GameReseed(s * 13 + 5); rm8SavePySeed(s);
+			rm8Log("load: fresh random seeds (dice / rules / python)");
+		}
 		return true;
 	};
 	{ rm8CollectInit(rm8UserDataDir(scenesRoot), game); }	// [A] profile (puzzle pieces) + story box next to rm8_settings.txt in the user data folder (scene.cpp rm8UserDataDir: desktop %APPDATA%/RM8, RM8_DATA_DIR overrides)
@@ -559,14 +567,14 @@ int main(int argc, char *argv[])
 	if(!shot.empty()){	// offscreen screenshot (desktop verification of the same shaders/pipelines)
 		cam->frameBuffer = Raster::create(W, H, 32, Raster::CAMERATEXTURE | Raster::C8888);
 		cam->zBuffer = Raster::create(W, H, 0, Raster::ZBUFFER);
-		V2d vw = {0.5f, 0.5f * H / W}; cam->setViewWindow(&vw);
+		V2d vw = {0.5f, 0.5f * H / W}; if(getenv("RM8_SHOT_GAMEVW")) vw = {kBoardVwY * W / H, kBoardVwY}; cam->setViewWindow(&vw);	// [A] RM8_SHOT_GAMEVW: the live game's view window (bug 44 repro)
 		rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, o.tx, o.tz);
 		rm8RolesSetCamera(cam);
 		if(haveUi) rm8UiSetScreen(W, H);	// the UI layout of the shot size from the start (test drivers click through the real UI during the simulation)
 		static const bool autoRoll = getenv("RM8_AUTO_ROLL") != nullptr;	// test hook: the human seat presses GO whenever it waits (shot mode)
 		static const float stepDt = getenv("RM8_SHOT_DT") ? (float)atof(getenv("RM8_SHOT_DT")) : 1.0f / 30;	// test hook: simulate a slow phone (frame time in seconds, the game clamps it to 0.1)
 		float trigT = -1;	// test hook RM8_SHOT_ON_INFO=<text>: stop the simulation 0.5 s after an info box containing <text> appeared (hud.cpp)
-		for(float t = 0; t < shotTime; t += stepDt){ if(rm8HudShotTriggered() && trigT < 0) trigT = t; if(trigT >= 0 && t - trigT > 0.5f) break; float d = std::min(stepDt, shotTime - t); cardRangeView(sc); rm8UpdateScene(sc, d); rm8RolesUpdate(sc, d); rm8EventUpdate(d); if(autoRoll) rm8RolesHumanRoll(); if(!cardPickCamera(sc, cam)) rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, o.tx, o.tz); }
+		for(float t = 0; t < shotTime; t += stepDt){ if(rm8HudShotTriggered() && trigT < 0) trigT = t; if(trigT >= 0 && t - trigT > 0.5f) break; float d = std::min(stepDt, shotTime - t); cardRangeView(sc); rm8UpdateScene(sc, d); rm8RolesUpdate(sc, d); rm8EventUpdate(d); if(autoRoll) rm8RolesHumanRoll(); if(!cardPickCamera(sc, cam)){ float fp[3] = {o.tx, 0, o.tz}; if(getenv("RM8_SHOT_FOLLOW")) rm8RolesFocus(fp); rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, fp[0], fp[2]); } }
 		if(getenv("RM8_SHOT_FOLLOW")){ float fp[3]; rm8RolesFocus(fp); rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, fp[0], fp[2]); }	// test hook: the shot looks at the turn flow's focus point
 		for(int f = 0; f < 3; f++){ rm8RenderReflection(sc, cam); rm8EventPreRender(cam); rm8InfoPreRender(cam); cam->clear(&bg, Camera::CLEARIMAGE | Camera::CLEARZ); cam->beginUpdate(); rm8RenderScene(sc, true); rm8PrtRender(cam); rm8RolesRender(); rm8RenderArticleGlass(); rm8RolesRenderLate(cam); if(haveUi){ rm8UiSetScreen(W, H); rm8HudRender(cam); } cam->endUpdate(); }
 		Image *img = cam->frameBuffer->toImage();

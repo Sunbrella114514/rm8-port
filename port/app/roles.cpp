@@ -93,6 +93,7 @@ struct Role {
 	bool intro = false;			// [V] +0x1B4 == 8: placed at the game start (vf24 @0x483110), the first 0x68 plays the introduction (Role_LeaveStatus8 @0x483540)
 	int status = 0;				// [V] +0x1B4 (7 bankrupt)
 	int diceMax = 1, diceCount = 1;		// [V] +0x22C max dice (= vehicle), +0x230 dice this throw
+	bool diceOn[3] = {true, false, false}, dicePrevOn[3] = {true, false, false}; int dicePrev = 1;	// [V] the slot flags +0x23C..+0x244 (slot 1 is always on; slots 2 / 3 are the go panel's toggles), their copy +0x248.. and the previous count +0x234 (Dice_SetCount @0x47da00)
 	int sndH = 0;				// [V] +0x48 walking loop sample handle
 	struct Msg { int cmd, a, b; };
 	std::vector<Msg> queue;			// [V] +0x5D0
@@ -762,6 +763,37 @@ static void stepTowardNode(Role &r, float dt)	// state 0xc
 	if(arrive) hotelBack(r);
 }
 
+// [V] the dice block at role +0x22C (class of Game_SetPlayerCount_0047d930 / Dice_SetCount / Game_SetDiceValue_0047dac0 / State_SyncFields)
+// Game_SetPlayerCount_0047d930 @0x47d930 (Role_InitState @0x480d30, Role_SetTrfTool @0x48a0c0): max = count = n, slots 1..n on, the others off
+static void diceSetMax(Role &r, int n)
+{
+	n = std::max(1, std::min(3, n));
+	r.diceMax = r.diceCount = n;
+	for(int k = 0; k < 3; k++) r.diceOn[k] = k < n;
+}
+// Dice_SetCount @0x47da00: only while n <= max; the old count and flags are kept for State_SyncFields, slots 1..n on, the others off
+static void diceSetCount(Role &r, int n)
+{
+	if(n > r.diceMax) return;
+	r.dicePrev = r.diceCount; r.diceCount = n;
+	for(int k = 0; k < 3; k++){ r.dicePrevOn[k] = r.diceOn[k]; r.diceOn[k] = k < n; }
+}
+// Game_SetDiceValue_0047dac0 @0x47dac0: slot 2..max set to on / off; the count = 1 + the flags of slots 2 and 3, at most max
+static bool diceSetSlot(Role &r, int slot, bool on)
+{
+	if(slot < 2 || slot > r.diceMax) return false;
+	r.diceOn[slot - 1] = on;
+	int n = 1; for(int k = 1; k < 3; k++) if(r.diceOn[k]) n++;
+	r.diceCount = std::min(n, r.diceMax);
+	return true;
+}
+// State_SyncFields @0x47d9c0 (u_CPlayerTag_SyncGameState @0x485020, the end of the event die): back to the count and flags before Dice_SetCount
+static void diceSync(Role &r)
+{
+	if(r.dicePrev > r.diceMax) return;
+	r.diceCount = r.dicePrev; r.diceOn[1] = r.dicePrevOn[1]; r.diceOn[2] = r.dicePrevOn[2];
+}
+
 // [V] Role_StartRollDice @0x484e50
 void startRollDice(Role &r, int force)
 {
@@ -772,6 +804,8 @@ void startRollDice(Role &r, int force)
 	float d[3] = {dp[0] * ((unsigned)r.cur % 3 != 0 ? -1.0f : 1.0f), dp[1], dp[2]};
 	float p[3] = {r.pos.x, r.pos.y, r.pos.z};
 	rm8SaveBoundary(3);	// test hook RM8_SAVE_DUMPT (save.cpp): the record before every roll
+	static const bool logDice = getenv("RM8_DEBUG_DICE") != nullptr;
+	if(logDice) rm8Log("dice: seat %d throws %d dice (slots %d%d%d, max %d, forced %d)", r.seat, force >= 1 && force <= 6 ? 1 : r.diceCount, (int)r.diceOn[0], (int)r.diceOn[1], (int)r.diceOn[2], r.diceMax, force);
 	rm8DiceStart(p, d, r.diceCount, force);
 	r.state = 3;
 	r.special = false;
@@ -789,7 +823,7 @@ void startEventDie(Role &r)
 	const float *dp = r.def->dice[0];
 	float d[3] = {dp[0] * ((unsigned)r.cur % 3 != 0 ? -1.0f : 1.0f), dp[1], dp[2]};
 	float p[3] = {r.pos.x, r.pos.y, r.pos.z};
-	r.diceCount = 1;
+	diceSetCount(r, 1);	// [V] Dice_SetCount(1): the old count and flags come back at the end (case 4 below)
 	rm8DiceStart(p, d, 1, 0);
 	r.state = 4; g_evDie = 0;
 	playAnim(r, 1, true);
@@ -805,7 +839,7 @@ void beforeRollDice(Role &r)
 	if(rm8GameShape(r.seat) == 6){ rm8NpcSleepwalk(r.seat); r.state = 8; return; }	// [V] Role_BeforeRollDice @0x484c80: possessed by 糊塗神 -> Role_ShowSleepwalkAndRoll
 	if(r.human){ r.state = 6; rm8SaveBoundary(1); return; }	// [A] save.cpp: pending manual saves are written while the human waits for the dice
 	if(rm8CardsAiUsePlanned(r.seat)){ r.state = 8; return; }	// [V] Role_UseCardBeforeRoll @0x4fbab0
-	r.diceCount = r.diceMax;
+	diceSetCount(r, r.diceMax);	// [A] the computer always throws all its dice (the AI.DiceNum answer is not called yet); Dice_SetCount(n) resets the slot flags
 	startRollDice(r, 0);
 }
 
@@ -950,10 +984,10 @@ void mainUpdate(Role &r, float dt)
 	switch(r.state){
 	case 0: case 6: tickIdle(r, dt); break;
 	case 1: stepAlongPath(r, dt); break;
-	case 3: { int sum = rm8DiceUpdate(dt, g_cam); if(sum > 0) beginMoveSteps(r, sum); } break;
+	case 3: { int sum = rm8DiceUpdate(dt, g_cam); if(sum > 0){ if(getenv("RM8_DEBUG_DICE")) rm8Log("dice: seat %d rolled %d", r.seat, sum); beginMoveSteps(r, sum); } } break;
 	case 0xb: stepTowardBuilding(r, dt); break;	// [V] Role_StepTowardBuilding @0x4854b0: walking into the hotel
 	case 0xc: stepTowardNode(r, dt); break;	// [V] Role_StepTowardTerraNode @0x4856d0: walking out of it
-	case 4: { int sum = rm8DiceUpdate(dt, g_cam); if(sum > 0){ g_evDie = sum; r.state = 9; playAnim(r, 2, false); } } break;	// [V] the event die: the result for the task, state 9 again
+	case 4: { int sum = rm8DiceUpdate(dt, g_cam); if(sum > 0){ diceSync(r); g_evDie = sum; r.state = 9; playAnim(r, 2, false); } } break;	// [V] the event die: u_CPlayerTag_SyncGameState @0x485020 restores the dice count / flags (State_SyncFields), the result goes to the task, state 9 again
 	case 5: r.waitT -= dt; if(r.waitT <= 0 && !rm8PresentSeatFxBusy(r.seat)){ r.state = 8; endExpression(r); if(getenv("RM8_DEBUG_HUD")) rm8Log("turn: seat %d wait ends", r.seat); } break;	// [V] Role_TickWaitTimer @0x4850b0: also waits for the role's effect / debut model handles (+0x50 / +0x54)
 	case 7: break;	// [V] waiting for a dialog (Role_OpenModalUi)
 	case 9: break;	// [V] an event task is running
@@ -1325,8 +1359,7 @@ bool rm8RolesHumanRoll()
 	if(g_role.empty() || g_placedOnly) return false;
 	Role &r = g_role[g_cur];
 	if(!r.human || r.state != 6) return false;	// [V] Game_TriggerRollDice @0x4e8340: dice button in state 6
-	r.diceCount = r.diceMax;
-	startRollDice(r, 0);
+	startRollDice(r, 0);	// [V] Role_StartRollDice(0) throws +0x230 dice as the slot toggles left them (no reset to the vehicle's maximum)
 	return true;
 }
 
@@ -1426,7 +1459,19 @@ bool rm8TurnQueueHas(int k, int cmd, bool headOnly)
 void rm8TurnSetState(int k, int st){ if(okSeat(k)) g_role[k].state = st; }
 int rm8TurnState(int k){ return okSeat(k) ? g_role[k].state : -1; }
 int rm8TurnDiceMax(int k){ return okSeat(k) ? g_role[k].diceMax : 1; }
-void rm8TurnSetDiceMax(int k, int n){ if(okSeat(k)){ g_role[k].diceMax = g_role[k].diceCount = std::max(1, std::min(3, n)); } }	// [V] start vehicle -> +0x22C (Role_InitState @0x480d30)
+void rm8TurnSetDiceMax(int k, int n){ if(okSeat(k)) diceSetMax(g_role[k], n); }	// [V] start vehicle -> +0x22C (Role_InitState @0x480d30) and Role_SetTrfTool @0x48a0c0: Game_SetPlayerCount_0047d930 (count = max, all slots on)
+int rm8TurnDiceCount(int k){ return okSeat(k) ? g_role[k].diceCount : 1; }
+bool rm8TurnDiceSlotOn(int k, int slot){ return okSeat(k) && slot >= 1 && slot <= 3 && g_role[k].diceOn[slot - 1]; }
+// [V] Ui_ToggleDiceSlotOnSelect @0x4e8410 (widgets 5 / 6 of go.ui, slot = id - 3): only for the current role in state 6; Role_ToggleDiceSlot @0x48a1c0 flips the flag of slot 2 / 3 (Game_SetDiceValue_0047dac0, which also recounts)
+bool rm8TurnToggleDiceSlot(int k, int slot)
+{
+	if(!okSeat(k) || k != g_cur) return false;
+	Role &r = g_role[k];
+	if(r.state != 6) return false;
+	if(!diceSetSlot(r, slot, !r.diceOn[std::max(0, std::min(2, slot - 1))])) return true;
+	if(getenv("RM8_DEBUG_DICE")) rm8Log("dice: seat %d slot %d toggled -> %s, %d dice (max %d)", k, slot, r.diceOn[slot - 1] ? "on" : "off", r.diceCount, r.diceMax);
+	return true;
+}
 void rm8TurnPlayAnim(int k, int anim, bool once)
 {
 	if(!okSeat(k)) return;

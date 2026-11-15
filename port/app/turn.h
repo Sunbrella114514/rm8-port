@@ -25,6 +25,9 @@ bool rm8TurnQueueHas(int seat, int cmd, bool headOnly);	// the queue's first mes
 void rm8TurnSetState(int seat, int state);	// [V] +0x1B8
 int rm8TurnState(int seat);
 int rm8TurnDiceMax(int seat);			// [V] +0x22C dice count (vehicle)
+int rm8TurnDiceCount(int seat);			// [V] +0x230 dice of the next throw (the slot toggles of go.ui decide it)
+bool rm8TurnDiceSlotOn(int seat, int slot);	// [V] slot flag 1..3 (slot 1 is always on)
+bool rm8TurnToggleDiceSlot(int seat, int slot);	// [V] Ui_ToggleDiceSlotOnSelect @0x4e8410 / Role_ToggleDiceSlot @0x48a1c0: slot 2 / 3 on <-> off (current role, state 6)
 void rm8TurnPlayAnim(int seat, int anim, bool once);
 void rm8TurnFocus(const float pos[3]);
 bool rm8TurnEventDieStart(int seat);		// [V] Role_StartDiceSceneCount1 @0x484d70: one 3D die thrown for a role in state 9 (event dialogs), state 4 while it rolls
@@ -118,6 +121,7 @@ void rm8GameSubMoney(int seat, long v, bool depositFirst);
 void rm8GameSetMoney(int seat, long cash, long deposit);
 void rm8GameAddPoints(int seat, long v);
 int rm8GameRand();					// the rules RNG (MSVC rand sequence)
+void rm8GameReseed(unsigned s);			// a loaded game draws new rules random numbers (the original does not save rand())
 // texts for queued dialog (cmd 1, b = 0x80 okcancel) / info (0x1B) messages: a = rm8GamePushText(utf8)
 int rm8GamePushText(const std::string &utf8);
 int rm8GamePushTextPic(const std::string &utf8, int uvlId);	// an info entry with a picture (e.g. a puzzle piece): shown with gtinfo.ui (text 1, picture 2)
