@@ -123,13 +123,26 @@ void setOwner(int ti, int r)
 }
 
 // [V] Role_CheckRentExempt @0x486580 (no possession yet): street sealed / owner not normal / bankrupt -> exempt
-bool rentExempt(int ti)
+// [V] the same function also queues the info box (0x1B, message at the end of the queue) and the emote:
+//   street sealed (street +0x108 != 0)                       -> str10 (street name), return 1, no emote
+//   owner status 0 and not possessed by 糊塗神               -> 0 (the rent is paid)
+//   owner status 0 + possessed by 糊塗神, or status 1..6     -> str9 (owner's name), then the 70 % emote, return 1
+//   owner status 7 (bankrupt)                                -> 1, no text, no emote
+//   no owner role (not reachable in the port)                -> emote only
+// callers: Role_ProcessArriveLand @0x4868e0 (residential, rent > 0, not invisible) and Role_OnArriveCommercialBuilding @0x486260 (chain store / hotel, rent argument 0), humans and AI alike
+bool rentExempt(int me, int ti, long rent)
 {
-	{ auto f = g_stFx.find(g_t[ti].street); if(f != g_stFx.end() && f->second.closeDays > 0) return true; }	// [V] street sealed (Street.Close)
+	{ auto f = g_stFx.find(g_t[ti].street); if(f != g_stFx.end() && f->second.closeDays > 0){
+		rm8TurnEnqueue(me, 0x1B, pushText(rm8StrFmt(10, streetName(g_t[ti].street).c_str())), 0);
+		return true; } }	// [V] street sealed (Street.Close)
 	int o = g_t[ti].owner;
-	if(!validR(o)) return true;
+	if(!validR(o)){ rm8PresentRentExempt(me, rent); return true; }
 	int st = rm8TurnStatus(o);
 	if(st == 0 && g_r[o].shape != 6) return false;
+	if(st == 7) return true;
+	rm8TurnEnqueue(me, 0x1B, pushText(rm8StrFmt(9, rm8TurnName(o))), 0);
+	if(getenv("RM8_DEBUG_RULES")) rm8Log("rules: seat %d: the owner (seat %d, status %d, shape %d) of plot %d is abnormal: str9 queued, rent exempt", me, o, st, g_r[o].shape, ti);
+	rm8PresentRentExempt(me, rent);
 	return true;
 }
 
@@ -169,11 +182,11 @@ void arriveLand(int me, int node)
 		if(t.type == 1 && g_r[me].invisible < 1){
 			long r = calcRent(ti, true);
 			r = rm8EventWonderRent(me, t.owner, r);	// [V] Wonder_CheckConstruction(1): the land wonder +-20 %
-			if(r > 0 && !rentExempt(ti)){
+			if(r > 0 && !rentExempt(me, ti, r)){	// [V] Role_CheckRentExempt @0x486580 (rent > 0 only): queues its own info box / emote when it exempts
 				std::string txt = t.level > 0 ? rm8StrFmt(7, streetName(t.street).c_str(), t.level, buildingName(1).c_str(), rm8TurnName(t.owner), (int)r)
 				                              : rm8StrFmt(6, streetName(t.street).c_str(), rm8TurnName(t.owner), (int)r);
 				rm8TurnEnqueue(me, 0x1B, pushText(txt), 0); rm8TurnEnqueue(me, 0x1F, (int)r, t.owner);
-			}else if(r > 0 && rm8TurnStatus(t.owner) != 7) rm8PresentRentExempt(me, r);	// [V] Role_CheckRentExempt @0x486580: exempt by the owner's status -> emote 0xD..0xF
+			}
 		}
 	}
 	if(s != 4 || t.owner == me) rm8TurnEnqueue(me, 0x22, ti, 0);	// [V] 0x22 gods (nothing without possession)
@@ -189,7 +202,7 @@ void arriveCommercial(int me, int node)
 		if(t.owner >= 0 && t.level != 0 && t.type == 2){
 			bool go = false;
 			if(t.build == 2) go = t.owner == me && g_r[me].shape != 6;
-			else if(t.build == 3 || t.build == 4) go = t.owner != me && g_r[me].invisible < 1 && !rentExempt(ti);
+			else if(t.build == 3 || t.build == 4) go = t.owner != me && g_r[me].invisible < 1 && !rentExempt(me, ti, 0);	// [V] rent argument 0: the emote is the smallest tier
 			if(go) rm8EventBuilding(me, ti);
 		}
 	}

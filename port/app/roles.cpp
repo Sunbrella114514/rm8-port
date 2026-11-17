@@ -798,7 +798,7 @@ static void diceSync(Role &r)
 void startRollDice(Role &r, int force)
 {
 	if(force == 0 && rm8CardsTurtleRoll(r.seat)) force = 1;	// [V] @0x484e50: turtle days > 0 and no forced roll: days - 1, the roll is forced to 1
-	if(force == 0 && r.human){ static const char *fd = getenv("RM8_FORCE_DIE"); if(fd) force = atoi(fd); }	// test hook: the human's roll is this value (one die)
+	if(force == 0 && (r.human || (r.seat == 0 && getenv("RM8_AUTO_SEAT0")))){ static const char *fd = getenv("RM8_FORCE_DIE"); if(fd) force = atoi(fd); }	// test hook: the human's roll is this value (one die)
 	setFocus(r.pos);
 	const float *dp = r.def->dice[std::max(0, std::min(2, r.diceCount - 1))];	// index = dice count, not vehicle
 	float d[3] = {dp[0] * ((unsigned)r.cur % 3 != 0 ? -1.0f : 1.0f), dp[1], dp[2]};
@@ -1250,6 +1250,7 @@ void rm8RolesRender()
 	SetRenderState(ALPHATESTREF, 196);
 	static const bool noShadow = getenv("RM8_NO_ROLE_SHADOW") != nullptr;	// comparison switch
 	rm8NpcRender();	// NPC objects before the characters
+	if(getenv("RM8_DEBUG_ROLEDRAW")){ static int n = 0; if(n++ % 120 == 0) for(Role &r : g_role) rm8Log("roledraw: seat %d char %d status %d pos (%.0f %.0f %.0f) npcHidden %d presentHidden %d", r.seat, r.def->id, r.status, r.pos.x, r.pos.y, r.pos.z, (int)rm8NpcRoleHidden(r.seat), (int)rm8PresentRoleHidden(r.seat)); }	// [A] test hook (bug 48): every role the board draws
 	for(Role &r : g_role){
 		if(r.status == 7) continue;	// [V] CPlayerTag__OnRoleBankruptcy @0x48f750 moves a bankrupt role off the board
 		if(r.status > 2) continue;

@@ -128,6 +128,7 @@ void rm8StoryNewRole(int role)
 
 int rm8StoryCandidates(int role, int out[4])
 {
+	if(role < 1 || role > 16) return 0;	// [A] no hero: nothing to look up (the empty-layer walk below would raise the run level to 3 for nothing, bug 49)
 	g_hero = role;
 	int L = std::min(rm8Box().stage, 3);	// [V] 0x503510: L = min(run.level, 3)
 	for(int guard = 0; guard < 6; guard++){

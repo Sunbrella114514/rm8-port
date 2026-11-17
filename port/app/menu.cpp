@@ -515,6 +515,7 @@ void enterMap()
 		// [V] Game_PopulateMapList story branch @0x503510: every map button is hidden, then the candidates of the run's layer (the hero's pass entries with level == min(run.level, 3);
 		//     an empty layer is skipped and recorded) are shown and enabled; u_RoleSel_SelectUniqueMatchEntry @0x504cd0 clicks the map when exactly one is left
 		for(int id = 1; id <= 11; id++) rm8UiSetVisible(u, id, false);
+		if(g_setup.seats.empty() && rm8StoryHero() >= 1 && rm8StoryHero() <= 16){ Rm8Seat s; s.charId = rm8StoryHero(); s.outfit = 0; s.computer = false; g_setup.seats.push_back(s); }	// [A] safety net (bug 49): a menu setup without its hero (the loaded game's setup was not handed over) takes the story's hero
 		int role = g_setup.seats.empty() ? 0 : g_setup.seats[0].charId;
 		g_nCand = rm8StoryCandidates(role, g_cand);
 		for(int k = 0; k < g_nCand; k++){ rm8UiSetVisible(u, g_cand[k], true); rm8UiSetEnabled(u, g_cand[k], true); }
@@ -856,6 +857,16 @@ void rm8MenuOpenPage(Rm8MenuPage page)
 void rm8MenuPlayStaffCredits(){ if(g_active && g_inited) goExtra(RM8X_MOVIE_STAFF); }
 bool rm8MenuActive(){ return g_active; }
 const Rm8Setup &rm8MenuSetup(){ return g_setup; }
+// [V] Save_LoadRecord @0x4a78f0 restores the whole setup block (+0x20 seats included) from the record, so the story map menu that opens after the loaded stage is cleared
+// (Game_PopulateMapList @0x503510 / u_RoleSel_SelectUniqueMatchEntry @0x504cd0 read the hero from seat 0) still knows its hero. [A] the opponents are cut (OnConfirm @0x503e90 does it
+// anyway) and seat 0 is a human again (a record written under auto play keeps the computer flag); bug 49
+void rm8MenuSetLoadedSetup(const Rm8Setup &st)
+{
+	g_setup = st; g_setup.map = 0;
+	if(!st.story) return;
+	if(g_setup.seats.size() > 1) g_setup.seats.resize(1);
+	if(!g_setup.seats.empty()) g_setup.seats[0].computer = false;
+}
 const Rm8Options &rm8MenuOptions(){ return g_opt; }
 
 #ifdef RM8_MENU_SDL

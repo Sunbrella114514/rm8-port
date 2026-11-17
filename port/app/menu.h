@@ -59,6 +59,7 @@ void rm8MenuPostRender(int w, int h);			// test hook: RM8_MENU_AUTO shots (reads
 std::string rm8MenuMapDir(int mapId);			// scene folder of a setup map id ("01".., "download201"..); "" if unknown
 const Rm8Setup &rm8MenuSetup();				// valid after RM8MENU_START_GAME / RM8MENU_MINIGAME
 const Rm8Options &rm8MenuOptions();
+void rm8MenuSetLoadedSetup(const Rm8Setup &st);		// a loaded record's setup becomes the menu's (the story map menu after a stage cleared in a loaded game needs the hero, bug 49)
 
 // ---- in-game system menu (gsys.ui, opened by gmaindlg button 10 @0x4a2e10 / Esc / Android back). "exit" -> exit.ui -> back to the menus
 void rm8MenuGameSystemOpen(bool open);

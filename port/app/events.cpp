@@ -246,7 +246,7 @@ struct TestHook {
 			return;
 		}
 		static float dbgT = 0; if(getenv("RM8_EVENT_TESTDBG") && (dbgT += dt) > 0.15f){ dbgT = 0; rm8Log("event test: cur %d state0 %d human %d task %d status0 %d", rm8TurnCurrent(), rm8TurnState(0), (int)rm8TurnHuman(0), (int)g_task.operator bool(), rm8TurnStatus(0)); }
-		if(nextEvent >= events.size() || rm8TurnCurrent() != 0 || rm8TurnState(0) != 6 || !rm8TurnHuman(0)) return;
+		if(nextEvent >= events.size() || rm8TurnCurrent() != 0 || (getenv("RM8_AUTO_SEAT0") ? false : (rm8TurnState(0) != 6 || !rm8TurnHuman(0)))) return;
 		static const struct { const char *n; int ev; } T[] = {{"bank", 5}, {"bankpass", 99}, {"shop", 1}, {"ask", 2}, {"court", 0xE}, {"lottery", 6}, {"draw", 0x62}, {"magic", 0xD}, {"power", 0xF}, {"ticket", 0x10}, {"park", 4}, {"cardpoint", 3}, {"point50", 10}, {"point30", 11}, {"point10", 12}, {"mini18", 0x12}, {"mini19", 0x13}, {"mini20", 0x14}, {"mini21", 0x15}, {"mini22", 0x16}, {"mini23", 0x17}, {"auction", 0x50}, {"bauction", 0x51}, {"wonder0", 0x5A}, {"wonder1", 0x5B}, {"wonder2", 0x5C}};
 		std::string n = events[nextEvent++];
 		if(const char *pts = getenv("RM8_EVENT_POINTS")) rm8GameAddPoints(0, atol(pts));	// test: extra points for the human
@@ -270,6 +270,21 @@ struct TestHook {
 				int nb[8]; int c = rm8TurnLinks(nd, nb, 8);
 				rm8Log("event test: [%.2f s] seat %d meets seat 0 on node %d", g_evClock, ms, nd);
 				rm8TurnPlaceAt(ms, nd, c > 0 ? nb[0] : nd); rm8PresentOnStop(0); rm8TurnSetState(0, 8);
+			}
+			return;
+		}
+		if(n == "rentland"){	// [A] bug 50 test: seat 1 owns a plot (RM8_RENT_KIND = res | market | hotel, default res) and is in status RM8_RENT_STATUS (default 4) / shape RM8_RENT_SHAPE; seat 0 stands one step before it
+			const char *kd = getenv("RM8_RENT_KIND"); std::string kind = kd ? kd : "res";
+			int tt = -1, nd = -1, want = kind == "res" ? 1 : 2;
+			for(int k = 0; k < rm8GameTerraCount() && tt < 0; k++) if(rm8GameTerraType(k) == want) for(int q = 0; q < rm8GameNodeCount(); q++) if(rm8GameNodeTerra(q) == k){ tt = k; nd = q; break; }
+			if(tt >= 0){
+				if(kind == "res") rm8GameSetTerra(tt, 1, 2, -1); else rm8GameSetTerra(tt, 1, 3, kind == "market" ? 3 : 4);
+				if(getenv("RM8_RENT_SEAL")) rm8GameStreetClose(rm8GameTerraStreet(tt), 5);
+				rm8TurnSetStatus(1, getenv("RM8_RENT_STATUS") ? atoi(getenv("RM8_RENT_STATUS")) : 4);
+				if(getenv("RM8_RENT_SHAPE")) rm8GameSetShape(1, atoi(getenv("RM8_RENT_SHAPE")));
+				int nb[8]; int c = rm8TurnLinks(nd, nb, 8);
+				rm8Log("event test: [%.2f s] rentland: plot %d (%s, node %d) owned by seat 1, seat 0 stands next to it", g_evClock, tt, kind.c_str(), nd);
+				if(c > 0) rm8TurnPlaceAt(0, nb[0], nd);
 			}
 			return;
 		}

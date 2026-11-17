@@ -533,6 +533,7 @@ int main(int argc, char *argv[])
 		if(!found){ rm8Log("load: no scene %s", info.mapDir.c_str()); return false; }
 		mapIdx = idx;
 		const Rm8Setup &st = info.setup;
+		rm8MenuSetLoadedSetup(st);	// bug 49: the menu's setup is the loaded one (the story map menu after a cleared stage reads its hero from seat 0)
 		curSetup = st;	// a story restart after a loaded game rebuilds this board (it was empty: the restart spawned 0 roles and the game hung)
 		roleIds.clear(); humanMask = 0; std::vector<int> outfits;
 		for(size_t k = 0; k < st.seats.size(); k++){ outfits.push_back(st.seats[k].outfit); rm8RolesSetOutfits(outfits); roleIds.push_back(st.seats[k].charId); if(!st.seats[k].computer) humanMask |= 1u << k; }

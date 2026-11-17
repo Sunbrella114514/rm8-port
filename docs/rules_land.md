@@ -411,7 +411,7 @@ acc=存款时: 存款 -= r; if 存款 < 0: 现金 = max(0, 现金 + 存款); 存
 | 状态 7（破产） | 无 | 1 |
 | 地主座位无效 | 无 | 1 |
 
-除“照付”和“破产”两种情况外，返回 1 前都有 70% 概率入队表情（0xD/0xE/0xF，分档同上）。
+表情（70%，0xD/0xE/0xF，分档同上）只在**未查封**且地主〔string.bin#9〕（str9 分支）或地主座位无效时入队；查封分支（str10）和破产（状态 7）没有表情。提示（0x1B）在 CheckRentExempt 里就入队，先于 0x11 / 0x22；调用点三处：ProcessArriveLand（住宅，租金 > 0 且自己 +0x1E4 < 1）、OnArriveCommercialBuilding @0x486260（连锁超市 / 饭店，租金参数 0），人类与电脑相同。移植：game.cpp rentExempt(me, 地块, 租金)；测试 `RM8_EVENT_TEST=rentland`（RM8_RENT_KIND / RM8_RENT_STATUS / RM8_RENT_SHAPE / RM8_RENT_SEAL，bug 50）。
 
 ### 2.7 消息 9 / 0xB 的执行
 
