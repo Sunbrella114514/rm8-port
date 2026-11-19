@@ -79,6 +79,7 @@ struct G23 : MgGame {
 	bool ratingSound = false;	// +0x69
 	int rating = 0;			// +0x6c
 	bool ratingKnown = false;	// [A] (the DLL leaves +0x6c uninitialised until the rating banner is drawn)
+	int seat0 = 0;			// [A] the acting seat (players[0]) for the result
 	Rm8Ui *ui = nullptr;		// +0x2c
 	std::vector<Popup> popups;	// +0x58 vector
 	bool trace = false;
@@ -132,6 +133,7 @@ struct G23 : MgGame {
 		ui = mg::introLoad("lg__lg_intro", 6956, [this]{ closeIntro(); });
 		// [V] mode: params[0x12] == 1 (current player is a computer) -> 1; else 2 if another player is human (type 2), else 0
 		mode = 0;
+		seat0 = pl.empty() ? 0 : pl[0].seat;	// [A] getResult
 		if(!pl.empty() && !pl[0].human) mode = 1;
 		else for(size_t i = 1; i < pl.size(); i++) if(pl[i].human){ mode = 2; break; }
 		running = true; introOpen = true; ended = false; endT1 = 1.0f; endT2 = 1.0f; readyT = 2.0f; lastReadySec = 5;
@@ -751,6 +753,7 @@ struct G23 : MgGame {
 		o.p[0].score = score;	// [2]
 		o.p[0].rating = rating;	// [4]
 		o.p[0].flagB = score;	// [5]
+		o.p[0].seat = seat0;	// [A] [1] the DLL leaves it to the host buffer (as mg_18): the acting seat (before, 0 = the reward went to seat 0 when another seat played)
 		mg::showCursor(true);	// +0x130(1)
 	}
 };

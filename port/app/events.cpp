@@ -13,6 +13,7 @@
 #include "present.h"
 #include "boardfx.h"
 #include "audio.h"
+#include "net.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -103,14 +104,14 @@ std::string plainFmt(int id, ...)
 	return plain(buf);
 }
 
-void addTickets(int seat, long n){ long cur = rm8GamePoints(seat); rm8GameAddPoints(seat, std::min(n, std::max(0L, 9999 - cur))); }
-void subTickets(int seat, long n){ rm8GameAddPoints(seat, -n); }	// clamps at 0 in the rules
+void addTickets(int seat, int32_t n){ int32_t cur = rm8GamePoints(seat); rm8GameAddPoints(seat, std::min(n, std::max(0, 9999 - cur))); }	// [N] int32_t
+void subTickets(int seat, int32_t n){ rm8GameAddPoints(seat, -n); }	// clamps at 0 in the rules
 
 int cardTotal(){ int n = rm8CardDefCount(); return n > 0 ? n : 49; }
 // [V] card.bin level (+0x210) / ticket (+0x214) come from scenes/cards.txt (cards.cpp, loaded in main before the first game starts: docs/cards.md section 1); 5 / 0 for an unknown card
 int cardLevel(int id){ int l = rm8CardLevel(id); return l > 0 ? l : 5; }
 int cardPrice(int id){ return std::max(0, rm8CardPrice(id)); }
-int difficulty(){ static int d = getenv("RM8_DIFFICULTY") ? atoi(getenv("RM8_DIFFICULTY")) : 3; return d; }
+int difficulty(){ return rm8Difficulty(); }	// [V] InitTxt_GetParam(7) at every read (menu.cpp), no cache
 bool holdsCard(int seat, int id){ for(int i = 0; i < rm8CardMax(); i++) if(rm8CardAt(seat, i) == id) return true; return false; }
 
 // [V] Card_SelectByDifficulty @0x4ae270: r = rand() % 10; level limit r / 7 + 1 (+ r / 9 for param 0); one random card with level <= limit
@@ -177,7 +178,10 @@ Task *createTask(int seat, int event)
 	case 10: case 11: case 12: t = makePointTask(seat, event); break;
 	case 0x11: t = makeNewsTask(seat); break;	// [V] vtable 0x5E20A8 (GameState__Ctor @0x493820, loader vf16 @0x4B4170): the news (news.cpp, docs/news.md)
 	case 0x52: t = makeBalanceTask(seat); break;	// [V] vtable 0x5E49C8 (Cls_5e49c8, Game_TriggerNormalEvent @0x4a6620): the monthly balance (balance.cpp, docs/balance.md)
-	case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17: t = makeMiniTask(seat, event); break;
+	case 0x12: case 0x13: case 0x14: case 0x15: case 0x16: case 0x17:
+		// [N] N4 netplay (event_mini.cpp, docs/netplay.md section 9.3): a human seat's minigame runs on its player's device, every device waits in the task for
+		// RM8C_MINI_RESULT; 0x15 (a human seat, or a computer seat while humans are in the game, as in the original) is played by every device together
+		t = makeMiniTask(seat, event); break;
 	case 0x5A: case 0x5B: case 0x5C: t = makeWonderTask(seat, event - 0x5A); break;	// [V] CreateGameObject: MagicHouse_InitContainer(0 / 1 / 2) = vtable 0x5E4938
 	case 0x133: t = makeWonderStageTask(seat, g_taskArg); break;
 	case 0x134: t = makeBuildingTask(seat, g_taskArg); break;	// [A] internal: the building of the plot g_taskArg	// [A] internal: the building effect of message 0x33
@@ -246,7 +250,8 @@ struct TestHook {
 			return;
 		}
 		static float dbgT = 0; if(getenv("RM8_EVENT_TESTDBG") && (dbgT += dt) > 0.15f){ dbgT = 0; rm8Log("event test: cur %d state0 %d human %d task %d status0 %d", rm8TurnCurrent(), rm8TurnState(0), (int)rm8TurnHuman(0), (int)g_task.operator bool(), rm8TurnStatus(0)); }
-		if(nextEvent >= events.size() || rm8TurnCurrent() != 0 || (getenv("RM8_AUTO_SEAT0") ? false : (rm8TurnState(0) != 6 || !rm8TurnHuman(0)))) return;
+		static const int ts = getenv("RM8_EVENT_SEAT") ? std::max(0, atoi(getenv("RM8_EVENT_SEAT"))) : 0;	// [N] test hook RM8_EVENT_SEAT=<seat>: the minigame / simple events land on that seat (netplay: a remote player's seat)
+		if(nextEvent >= events.size() || rm8TurnCurrent() != ts || (getenv("RM8_AUTO_SEAT0") ? false : (rm8TurnState(ts) != 6 || !rm8TurnHuman(ts)))) return;
 		static const struct { const char *n; int ev; } T[] = {{"bank", 5}, {"bankpass", 99}, {"shop", 1}, {"ask", 2}, {"court", 0xE}, {"lottery", 6}, {"draw", 0x62}, {"magic", 0xD}, {"power", 0xF}, {"ticket", 0x10}, {"park", 4}, {"cardpoint", 3}, {"point50", 10}, {"point30", 11}, {"point10", 12}, {"mini18", 0x12}, {"mini19", 0x13}, {"mini20", 0x14}, {"mini21", 0x15}, {"mini22", 0x16}, {"mini23", 0x17}, {"auction", 0x50}, {"bauction", 0x51}, {"wonder0", 0x5A}, {"wonder1", 0x5B}, {"wonder2", 0x5C}};
 		std::string n = events[nextEvent++];
 		if(const char *pts = getenv("RM8_EVENT_POINTS")) rm8GameAddPoints(0, atol(pts));	// test: extra points for the human
@@ -323,12 +328,12 @@ struct TestHook {
 			}
 			return;
 		}
-		for(auto &e : T) if(n == e.n){ rm8Log("event test: seat 0 lands on %s (event %d)", e.n, e.ev); int arg = rm8TurnNode(0);
+		for(auto &e : T) if(n == e.n){ rm8Log("event test: seat %d lands on %s (event %d)", ts, e.n, e.ev); int arg = rm8TurnNode(ts);
 			if(e.ev == 0x50 || e.ev == 0x51){	// test: the plot to sell = RM8_EVENT_TERRA or the first plot without an owner (the argument of Game_UseCard is the plot, not a node)
 				arg = getenv("RM8_EVENT_TERRA") ? atoi(getenv("RM8_EVENT_TERRA")) : 0;
 				if(!getenv("RM8_EVENT_TERRA")) for(int k = 0; k < rm8GameTerraCount(); k++) if(rm8GameTerraOwner(k) < 0 && rm8GameTerraLevel(k) > 0){ arg = k; break; }
 			}
-			rm8EventLand(0, e.ev, arg); nextAuto = 0; t = 0; }
+			rm8EventLand(ts, e.ev, arg); nextAuto = 0; t = 0; }
 	}
 } g_test;
 
@@ -385,7 +390,7 @@ bool rm8EventLand(int seat, int event, int node)
 	if(!remapInit){ remapInit = true; if(const char *e = getenv("RM8_EVENT_REMAP")) sscanf(e, "%d:%d", &remapFrom, &remapTo); }
 	if(event == remapFrom) event = remapTo;
 	static const bool dbg = getenv("RM8_DEBUG_EVENTS") != nullptr;
-	if(dbg) rm8Log("events: [%.2f s] seat %d (%s) lands on event %d at node %d: cash %ld deposit %ld points %ld cards %d", g_evClock, seat, rm8TurnHuman(seat) ? "human" : "computer", event, node, rm8GameCash(seat), rm8GameDeposit(seat), rm8GamePoints(seat), rm8CardCount(seat));
+	if(dbg) rm8Log("events: [%.2f s] seat %d (%s) lands on event %d at node %d: cash %d deposit %d points %d cards %d", g_evClock, seat, rm8TurnHuman(seat) ? "human" : "computer", event, node, rm8GameCash(seat), rm8GameDeposit(seat), rm8GamePoints(seat), rm8CardCount(seat));
 	if(event <= 0) return false;
 	if(event == 0x50 || event == 0x51) return startAuction(seat, node, event == 0x51);	// [V] Game_UseCard(0x50 / 0x51, plot): the same task for a computer and a human (node = the plot here)
 	if(!rm8TurnHuman(seat)){
@@ -445,6 +450,8 @@ void rm8EventUpdate(float dt)
 }
 
 bool rm8EventRunning(){ return g_task != nullptr; }
+int rm8EventInputSeat(){ return g_task ? g_task->inputSeat() : -1; }	// [N] netplay: whose decision the event dialog waits for
+
 bool rm8EventSkip(){ return g_task && g_task->skip(); }
 bool rm8EventSkipDialogs(){ if(g_getcardT <= 0) return false; g_getcardT = 0; rm8UiShow(g_getcard, false); return true; }
 
@@ -465,7 +472,7 @@ void rm8EventClear()
 bool rm8EventMessage(int seat, int cmd, int a, int b)
 {
 	static const bool dbg = getenv("RM8_DEBUG_EVENTS") != nullptr;
-	if(dbg && (cmd == 7 || cmd == 8)) rm8Log("events: seat %d %s %d points (was %ld)", seat, cmd == 7 ? "gets" : "pays", a, rm8GamePoints(seat));
+	if(dbg && (cmd == 7 || cmd == 8)) rm8Log("events: seat %d %s %d points (was %d)", seat, cmd == 7 ? "gets" : "pays", a, rm8GamePoints(seat));
 	switch(cmd){
 	case 4: receiveCard(seat, a, b); return true;				// [V] Role_ReceiveCardWithUi(a, b)
 	case 5: {								// [V] Role_ShowAndRemoveCardInSlot(a) (a < 8) / Role_QueueRemoveRandomCards(b) @0x489470
@@ -504,7 +511,7 @@ bool rm8EventMessage(int seat, int cmd, int a, int b)
 			if(cmd == 0x38) rm8GameSubMoney(s, a, b != 0); else rm8GameAddMoney(s, a, b != 0);
 			n++;
 		}
-		if(cmd == 0x38) rm8GameAddMoney(seat, (long)a * n, b != 0); else rm8GameSubMoney(seat, (long)a * n, b != 0);
+		if(cmd == 0x38) rm8GameAddMoney(seat, (int32_t)a * n, b != 0); else rm8GameSubMoney(seat, (int32_t)a * n, b != 0);	// [N] int32_t
 		rm8RoleSayAt(seat, 0, cmd == 0x38 ? 1 : 4);
 		if(dbg) rm8Log("events: seat %d %s %d x %d", seat, cmd == 0x38 ? "collects" : "pays", a, n);
 		return true; }

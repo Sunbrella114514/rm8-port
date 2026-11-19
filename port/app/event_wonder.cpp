@@ -266,7 +266,7 @@ int rm8EventWonderOwner(int idx){ return wonderOwner(idx); }
 int rm8EventWonderOwnerRaw(int idx){ return wonderOwnerRaw(idx); }
 
 // [V] Role_ProcessArriveLand @0x4868e0: the land wonder: its owner pays 20 % less (rent - rent * 20 / 100), the owner of the plot being the wonder's owner gets 20 % more
-long rm8EventWonderRent(int payer, int plotOwner, long rent)
+int32_t rm8EventWonderRent(int payer, int plotOwner, int32_t rent)	// [N] int32_t
 {
 	int w = wonderOwner(1);
 	if(w >= 0 && w == payer) return rent - (rent * 20) / 100;

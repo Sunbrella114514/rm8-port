@@ -11,6 +11,7 @@
 #include "collect.h"
 #include "save.h"
 #include "infoscreens.h"
+#include "net.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -51,6 +52,31 @@ float g_time = 0;
 int g_sw = 1280, g_sh = 720;
 int g_mapInit = 1;		// the map menu's initial state: 1 normal, 0xB after a cleared story stage (Cls_5e81e0 state)
 int g_movieRole = 0;	// finalMenu: the ending movie asked for
+// [N] netplay room on these screens (menu.h Rm8MenuNetMode, docs/netplay.md section 5)
+int g_netMode = 0;			// RM8MENU_NET_*
+std::vector<Rm8MenuNetSeat> g_netSeats;	// parallel to g_setup.seats in a room
+int g_netSerial = 0, g_netMySeat = -1;
+bool g_netLoad = false;			// the load menu picks the record of a netplay resume (RM8PAGE_NET_LOAD)
+// keeps g_netSeats parallel to g_setup.seats: a new human seat is the host's own when the host has none yet, else it waits for a network player
+void netSeatsSync()
+{
+	if(g_netMode != RM8MENU_NET_HOST) return;
+	if(g_netSeats.size() > g_setup.seats.size()) g_netSeats.resize(g_setup.seats.size());
+	while(g_netSeats.size() < g_setup.seats.size()){
+		const Rm8Seat &s = g_setup.seats[g_netSeats.size()];
+		bool local = false; for(const Rm8MenuNetSeat &q : g_netSeats) if(q.kind == 0) local = true;
+		Rm8MenuNetSeat n; n.serial = ++g_netSerial; n.kind = s.computer ? 2 : local ? 1 : 0;
+		g_netSeats.push_back(n);
+	}
+	bool local = false;
+	for(size_t k = 0; k < g_setup.seats.size(); k++){
+		if(g_setup.seats[k].computer) g_netSeats[k].kind = 2;
+		else if(g_netSeats[k].kind == 2) g_netSeats[k].kind = 1;
+		if(g_netSeats[k].kind == 0) local = true;
+	}
+	if(!local) for(size_t k = 0; k < g_setup.seats.size(); k++) if(!g_setup.seats[k].computer){ g_netSeats[k].kind = 0; break; }	// the host keeps a seat of its own
+}
+int netLocalSeats(){ int n = 0; for(const Rm8MenuNetSeat &q : g_netSeats) if(q.kind == 0) n++; return n; }
 
 // ---- [A] settings file (the original rewrites Config\init.txt, CInitConfig__vf18_SaveConfig @0x50ab40; the game folder is read-only here)
 std::string readFileKey(const std::string &path, const char *key)
@@ -65,37 +91,44 @@ std::string readFileKey(const std::string &path, const char *key)
 void loadOptions()
 {
 	// [V] init.txt [param] keys fullscreen, character, speed, difficuty, sound, music (InitConfig_LoadInitTxt @0x401080; defaults sound 4, music 3, docs/audio.md)
+	// [V] @0x401080: the ini value of speed is the slider value, the configuration (and everything that reads it) holds ini + 2 (InitConfig_SaveInitTxt @0x401370 writes - 2);
+	// [A] rm8_settings.txt keeps the internal value (its speed key has always been one), so only the game's own init.txt gets the + 2
 	std::string ini = g_game + "/Config/init.txt";
-	auto num = [&](const std::string &file, const char *k, int &dst){ std::string v = readFileKey(file, k); if(!v.empty()) dst = atoi(v.c_str()); };
+	auto num = [&](const std::string &file, const char *k, int &dst, int add = 0){ std::string v = readFileKey(file, k); if(!v.empty()) dst = atoi(v.c_str()) + add; };
 	for(const std::string &f : {ini, g_settingsFile}){
-		num(f, "music", g_opt.music); num(f, "sound", g_opt.sound); num(f, "speed", g_opt.speed); num(f, "difficuty", g_opt.difficulty);
+		num(f, "music", g_opt.music); num(f, "sound", g_opt.sound); num(f, "speed", g_opt.speed, f == ini ? 2 : 0); num(f, "difficuty", g_opt.difficulty);
 		num(f, "character", g_opt.character);
 	}
 	g_opt.fullscreen = 0; num(g_settingsFile, "fullscreen", g_opt.fullscreen);	// [A] the user's init.txt window mode is not copied
 	g_opt.music = std::max(0, std::min(5, g_opt.music)); g_opt.sound = std::max(0, std::min(5, g_opt.sound));
 	g_opt.speed = std::max(3, std::min(7, g_opt.speed)); g_opt.difficulty = std::max(1, std::min(3, g_opt.difficulty));
 	g_opt.character = std::max(4, std::min(6, g_opt.character));
+	g_opt.fullscreen = g_opt.fullscreen ? 1 : 0;
 	g_opt.simplified = rm8ZhEnabled();
 	std::string l = readFileKey(g_settingsFile, "simplified");
 	if(!l.empty() && !getenv("RM8_LANG")){ g_opt.simplified = atoi(l.c_str()) != 0; rm8ZhEnable(g_opt.simplified); }
+	g_opt.plus = atoi(readFileKey(g_settingsFile, "rules_plus").c_str()) != 0;	// [R] rules_plus: only in rm8_settings.txt (off when the key is missing)
+	{ std::string np = readFileKey(g_settingsFile, "net_port"); if(!np.empty() && atoi(np.c_str()) > 0 && atoi(np.c_str()) < 65536) g_opt.netPort = atoi(np.c_str()); }	// [N] netplay: the host's listen port
+	g_opt.netLast = readFileKey(g_settingsFile, "net_last");	// [N] the last address joined
+	g_opt.netName = readFileKey(g_settingsFile, "net_name");	// [N] the player name (UTF-8)
 }
 void saveOptions()
 {
 	std::ofstream f(g_settingsFile);
 	if(!f) return;
 	f << "music=" << g_opt.music << "\nsound=" << g_opt.sound << "\nspeed=" << g_opt.speed << "\ndifficuty=" << g_opt.difficulty
-	  << "\nfullscreen=" << g_opt.fullscreen << "\ncharacter=" << g_opt.character << "\nsimplified=" << (g_opt.simplified ? 1 : 0) << "\n";
+	  << "\nfullscreen=" << g_opt.fullscreen << "\ncharacter=" << g_opt.character << "\nsimplified=" << (g_opt.simplified ? 1 : 0) << "\nrules_plus=" << (g_opt.plus ? 1 : 0) << "\n";
+	f << "net_port=" << g_opt.netPort << "\n";	// [N] netplay (docs/netplay.md)
+	if(!g_opt.netLast.empty()) f << "net_last=" << g_opt.netLast << "\n";
+	if(!g_opt.netName.empty()) f << "net_name=" << g_opt.netName << "\n";	// [N]
 }
 void applyOptions()
 {
-	// difficulty is read by the rules through RM8_DIFFICULTY ([A] events.cpp caches it on first use), speed is rm8GameSpeed (roles.cpp)
-	char b[8]; snprintf(b, sizeof b, "%d", g_opt.difficulty);
-#ifdef _WIN32
-	_putenv_s("RM8_DIFFICULTY", b);
-#else
-	setenv("RM8_DIFFICULTY", b, 1);
-#endif
-	rm8GameSpeed = g_opt.speed;
+	// [V] Config_ApplySetting @0x50a710: music / sound level -> the audio masters (Music_SetVolumeLevel @0x4061e0, Sound_SetVolumeLevel @0x406230), speed -> InitConfig_SetSpeed,
+	// difficulty -> InitConfig_SetParam(7) (every rule reads g_opt.difficulty through rm8Difficulty() when it needs it, like InitTxt_GetParam(7)), fullscreen -> CApp_SetFullscreenMode
+	// (the window; hook of rm8_app.cpp, a no-op on Android)
+	rm8AudioSetLevels(g_opt.music, g_opt.sound);
+	if(!rm8NetActive()) rm8GameSpeed = g_opt.speed;	// [N] a netplay game keeps the host's speed (the walk / wait times are part of the shared simulation)
 	if(rm8MenuHooks().applyOptions) rm8MenuHooks().applyOptions(g_opt);
 }
 
@@ -245,10 +278,14 @@ void enterMain()
 	g_back = [](){ g_result = RM8MENU_QUIT; };
 	rm8MusicPlay(101, true);	// [V] CGameScene__vf16_Init @0x509d70: track 101 (docs/audio.md)
 }
+int g_netBtn = 0;	// [N] the 联机 button of the mult page (a runtime widget, docs/netplay.md section 5)
 void enterGame()
 {
 	Rm8Ui *u = loadUi(g_setup.story ? "single" : "mult");
+	g_netLoad = false;	// [N]
+	if(!g_setup.story && rm8MenuHooks().multPage) rm8MenuHooks().multPage();	// [N] back on the free game page: a host that has not opened its lobby yet stops listening
 	g_itemClick = [](int id){
+		if(g_netBtn && id == g_netBtn && !g_setup.story){ g_result = RM8MENU_NETPLAY; return; }	// [N] online play (net_ui.cpp)
 		switch(id){
 		case 1:	// [V] Cls_5e8000_vf12 @0x50db90: 1 -> new game: the multi menu opens the map menu (state 3), the single menu the role menu (state 2)
 			if(g_setup.story){ g_setup.seats.clear(); g_setup.map = 0; go(S_ROLES); }
@@ -262,6 +299,11 @@ void enterGame()
 	};
 	setScreenUi(u, itemsClick);
 	itemsInit(u, GAME_TAB);
+	if(!g_setup.story && u){	// [N] 联机 (online play): a runtime button below the five hexagons of mult.ui
+		static Rm8Ui *made = nullptr;
+		if(made != u){ made = u; g_netBtn = rm8UiAddWidget(u, "button", 0, 412, 690, 200, 54, -1, 0xE0702818, 26, 30); rm8UiSetText(u, g_netBtn, "联机对战"); rm8UiSetColor(u, g_netBtn, 0xFFFFF0C0); rm8UiSetAlignN(u, ("dyn" + std::to_string(g_netBtn)).c_str(), 1, 1); }
+		rm8UiSetVisible(u, g_netBtn, true);
+	}
 	g_back = [](){ go(S_MAIN); };
 }
 
@@ -285,9 +327,10 @@ void rolesRefresh()
 	bool dolls = rm8MenuAnimSeats(seatRoles);	// [V] the 3D characters of the seats (menu_anim.cpp); the hexagon portrait below is the stand-in when they cannot load
 	for(int k = 0; k < 4; k++){
 		bool has = k < n;
-		rm8UiSetVisible(u, 34 + k, has);
+		rm8UiSetVisible(u, 34 + k, has && g_netMode != RM8MENU_NET_MIRROR);	// [N] a mirrored room cannot remove seats
 		rm8UiSetVisible(u, 25 + k, has && g_setup.seats[k].computer);
 		rm8UiSetVisible(u, 29 + k, has && !g_setup.seats[k].computer);
+		rm8UiSetTint(u, 29 + k, g_netMode && has && k < (int)g_netSeats.size() && g_netSeats[k].kind == 1 ? 0xff8cff8c : 0xffffffff);	// [N] a green PLAYER tag = a network player's seat
 		rm8UiSetVisible(u, g_rm.head[k], has);
 		if(has) rm8UiSetPic(u, g_rm.head[k], dolls ? -1 : 173 + g_setup.seats[k].charId);	// the hexagon portrait of the role button (uvlist 174..189); the box still takes the click (select the seat)
 	}
@@ -313,6 +356,7 @@ void rolesAdd(int role)
 {
 	int maxSeats = g_setup.map == 101 ? 2 : 4;
 	if(!rm8ProfileRoleUnlocked(role)) return;	// [V] vf16 @0x505940: a role with Event_GetTerrainData == 0 is disabled
+	if(g_netMode == RM8MENU_NET_MIRROR){ if(g_netMySeat >= 0 && rm8MenuHooks().netPickRole) rm8MenuHooks().netPickRole(role, -1); return; }	// [N] a client asks the host for its own seat
 	if((int)g_setup.seats.size() >= maxSeats) return;
 	// [V] @0x5065f0: the first outfit k in 0..min(Event_GetLevel(role), 3) that no seat of this role uses; none left = the click does nothing
 	for(int k = 0; k <= std::min(rm8ProfileLevel(role), 3); k++){
@@ -321,6 +365,7 @@ void rolesAdd(int role)
 		if(used) continue;
 		Rm8Seat s; s.charId = role; s.outfit = k; s.computer = humans() > 0;
 		g_setup.seats.push_back(s);
+		netSeatsSync();	// [N]
 		g_rm.sel = (int)g_setup.seats.size() - 1;
 		rolesRefresh();
 		rolePlayVoice(role);	// [V] @0x5065f0: Cls_5e8140_PlayRoleSample(the new seat), before Game_ClearBinaryData
@@ -332,6 +377,7 @@ void rolesAdd(int role)
 void rolesOutfit(int outfit)
 {
 	if(g_rm.sel < 0 || g_rm.sel >= (int)g_setup.seats.size()) return;
+	if(g_netMode == RM8MENU_NET_MIRROR){ if(g_rm.sel == g_netMySeat && rm8MenuHooks().netPickRole) rm8MenuHooks().netPickRole(-1, outfit); return; }	// [N] only the client's own seat
 	Rm8Seat &me = g_setup.seats[g_rm.sel];
 	for(int k = 0; k < (int)g_setup.seats.size(); k++) if(k != g_rm.sel && g_setup.seats[k].charId == me.charId && g_setup.seats[k].outfit == outfit) return;	// [A] one seat per (role, outfit)
 	me.outfit = outfit;
@@ -346,7 +392,7 @@ void rolesStart()
 			if(n == 1) go(S_MAP);
 			else rm8UiSetText(g_ui, 99, u8"闖關模式只能選擇一名角色。（移植版提示）");	// [A] the game ignores the click
 		}
-		else if(n >= 2) g_result = RM8MENU_START_GAME;	// [V] free game
+		else if(n >= 2){ if(g_netMode == RM8MENU_NET_HOST){ if(rm8MenuHooks().netStart) rm8MenuHooks().netStart(); } else g_result = RM8MENU_START_GAME; }	// [V] free game; [N] a netplay room starts through net.cpp (ready check)
 		else rm8UiSetText(g_ui, 99, u8"至少需要兩名玩家。（移植版提示）");	// [A] the game ignores the click
 	}else if(n > 0){
 		int game = g_setup.map - 100;
@@ -364,21 +410,40 @@ void enterRoles()
 		for(int k = 0; k < 4; k++) g_rm.head[k] = rm8UiAddWidget(u, "plane", 0, SEAT_X[k] - 7, SEAT_Y[k] - 150, 128, 128, -1, 0, 16, 6);	// [A] seat portrait (the game shows the 3D character)
 	}
 	setScreenUi(u, [](int id){
+		if(g_netMode == RM8MENU_NET_MIRROR){	// [N] a client's mirrored role menu: O ready, X leave, its own seat's character / outfit, look at a seat
+			if(id == 17){ if(rm8MenuHooks().netReady) rm8MenuHooks().netReady(); }
+			else if(id == 18){ if(rm8MenuHooks().netLeave) rm8MenuHooks().netLeave(); }
+			else if(id >= 1 && id <= 16) rolesAdd(id);
+			else if(id >= 19 && id <= 23) rolesOutfit(id - 19);
+			else if(id == 33) rolesOutfit(4);
+			else for(int k = 0; k < 4; k++) if(id == g_rm.head[k] && k < (int)g_setup.seats.size()){ g_rm.sel = k; rolesRefresh(); }
+			return;
+		}
 		if(id >= 1 && id <= 16) rolesAdd(id);
 		else if(id == 17) rolesStart();
 		else if(id == 18){ go(g_setup.map >= 101 ? S_LTGAME : g_setup.story ? S_GAME : S_MAP); }	// [V] 0x5069b0: story -> the single menu (state 8)
 		else if(id >= 19 && id <= 23) rolesOutfit(id - 19);
 		else if(id == 33) rolesOutfit(4);
-		else if(id >= 25 && id <= 28){ if(id - 25 < (int)g_setup.seats.size()){ g_setup.seats[id - 25].computer = false; rolesRefresh(); } }
-		else if(id >= 29 && id <= 32){ if(id - 29 < (int)g_setup.seats.size() && humans() >= 2){ g_setup.seats[id - 29].computer = true; rolesRefresh(); } }
+		else if(id >= 25 && id <= 28){ if(id - 25 < (int)g_setup.seats.size()){ g_setup.seats[id - 25].computer = false; netSeatsSync(); rolesRefresh(); } }	// [N] in a room: COM -> waiting for a network player (netSeatsSync)
+		else if(id >= 29 && id <= 32){
+			int k = id - 29;
+			if(g_netMode == RM8MENU_NET_HOST && k < (int)g_netSeats.size() && k < (int)g_setup.seats.size()){	// [N] the third state: network player -> the host's own seat -> COM
+				if(g_netSeats[k].kind == 1) g_netSeats[k].kind = 0;
+				else if(netLocalSeats() >= 2){ g_setup.seats[k].computer = true; }
+				netSeatsSync(); rolesRefresh();
+			}
+			else if(k < (int)g_setup.seats.size() && humans() >= 2){ g_setup.seats[k].computer = true; rolesRefresh(); }
+		}
 		else if(id >= 34 && id <= 37){
 			int k = id - 34;
 			if(k < (int)g_setup.seats.size()){
 				if(k == g_rm.sel) roleVoiceStop();	// [V] @0x5065f0: removing the selected seat stops its sample
 				g_setup.seats.erase(g_setup.seats.begin() + k);
+				if(k < (int)g_netSeats.size()) g_netSeats.erase(g_netSeats.begin() + k);	// [N]
 				if(k <= g_rm.sel) g_rm.sel--;
 				if(g_rm.sel < 0 && !g_setup.seats.empty()) g_rm.sel = 0;
 				if(!g_setup.seats.empty() && humans() < 1) g_setup.seats[0].computer = false;	// [V] 0x5065f0: the first seat becomes human again
+				netSeatsSync();
 				rolesRefresh();
 			}
 		}
@@ -386,6 +451,7 @@ void enterRoles()
 	});
 	g_back = [](){ g_click(18); };
 	g_rm.sel = g_setup.seats.empty() ? -1 : 0;	// [A] the game starts with no selection (vf16 @0x505940 sets -1)
+	netSeatsSync();	// [N]
 	for(int r = 1; r <= 16; r++) rm8UiSetEnabled(u, r, rm8ProfileRoleUnlocked(r));	// [V] vf16 @0x505940: Event_GetTerrainData(role) == 0 disables the role button
 	rolesRefresh();
 }
@@ -456,6 +522,18 @@ void mapSetOption(int row, int v)	// [V] Game_SetOption: row 1..6 as in the game
 	case 5: if(v >= 0 && v < (int)g_downloads.size()){ g_setup.map = 0x15 + v; rm8UiSetText(g_ui, 66, mapNameOf(0x15 + v)); mapShowInfo(g_setup.map); mapPlaceMarker(); } break;
 	}
 }
+// [N] a mirrored map menu (netplay client): the option labels, the marker and the description of the host's values
+void mapApplyLabels()
+{
+	static const int cash[3] = {50000, 100000, 200000}, tick[3] = {0, 50, 100};
+	for(int i = 0; i < 3; i++){ if(g_setup.cash == cash[i]) rm8UiSetText(g_ui, 61, S(7001 + i)); if(g_setup.tickets == tick[i]) rm8UiSetText(g_ui, 62, S(7011 + i)); }
+	if(g_setup.vehicle >= 0 && g_setup.vehicle < 3) rm8UiSetText(g_ui, 63, S(7021 + g_setup.vehicle));
+	if(g_setup.timeLimit >= 0 && g_setup.timeLimit < 3) rm8UiSetText(g_ui, 64, S(7031 + g_setup.timeLimit));
+	if(g_setup.winCond >= 0 && g_setup.winCond < 6) rm8UiSetText(g_ui, 65, S(7041 + g_setup.winCond));
+	rm8UiSetText(g_ui, 66, g_setup.map >= 0x15 ? mapNameOf(g_setup.map) : std::string());
+	mapCloseList();
+	mapShowInfo(g_setup.map > 0 ? g_setup.map : 0); mapPlaceMarker();
+}
 void enterMap()
 {
 	Rm8Ui *u = loadUi("chsMapMenu");
@@ -473,6 +551,11 @@ void enterMap()
 	// [V] vf16 @0x503100: setup+4 = 0, Game_InitOptions
 	g_setup.map = 0; g_setup.cash = 100000; g_setup.tickets = 50; g_setup.vehicle = 0; g_setup.timeLimit = 2; g_setup.winCond = 5;
 	setScreenUi(u, [](int id){
+		if(g_netMode == RM8MENU_NET_MIRROR){	// [N] a client's mirrored map menu: O ready, X leave
+			if(id == 118){ if(rm8MenuHooks().netReady) rm8MenuHooks().netReady(); }
+			else if(id == 12){ if(rm8MenuHooks().netLeave) rm8MenuHooks().netLeave(); }
+			return;
+		}
 		if(g_setup.story && rm8StoryHostState() != 1) return;	// [V] Cls_5e81e0__vf12_OnEvent @0x503d20 acts only in state 1: the host is talking
 		if(id >= 1 && id <= 11){
 			g_setup.map = id; mapShowInfo(id); mapPlaceMarker(); rm8UiSetText(g_ui, 66, ""); mapCloseList();
@@ -488,6 +571,7 @@ void enterMap()
 		else for(int row = 0; row < 6; row++) for(int k = 0; k < 6; k++) if(id == g_mm.items[k] && g_mm.openRow == row) mapSetOption(row, k);
 	});
 	g_back = [](){
+		if(g_netMode == RM8MENU_NET_MIRROR){ if(rm8MenuHooks().netLeave) rm8MenuHooks().netLeave(); return; }	// [N]
 		if(g_mm.openRow >= 0){ mapCloseList(); return; }
 		if(!g_setup.story){ go(S_GAME); return; }	// [V] vf11 @0x5042a0
 		// [V] OnBack @0x5042a0: only in state 1, and not once a stage was cleared in this run (run.level > 0); Cls_5e81e0_ShowGameMenu @0x504310: the carried items go back
@@ -555,7 +639,7 @@ void enterFinal()
 // [V] Config_ApplySetting @0x50a710 applies a change at once; the back button (ID 7, vf12 @0x50ac30) saves init.txt (vf18 @0x50ab40) and returns to the main menu (@0x50ac60)
 struct Slider { int id, lo, hi, knob; };
 Slider g_sl[6] = {{1, 0, 5, 0}, {2, 0, 5, 0}, {3, 1, 5, 0}, {4, 1, 3, 0}, {5, 0, 1, 0}, {6, 1, 3, 0}};	// ranges [V] Min / Max keys of optionMenu.ui
-int g_drag = -1, g_langBtn = 0;
+int g_drag = -1, g_langBtn = 0, g_plusBtn = 0;
 int sliderGet(int id)
 {
 	switch(id){ case 1: return g_opt.music; case 2: return g_opt.sound; case 3: return g_opt.speed - 2; case 4: return g_opt.difficulty; case 5: return g_opt.fullscreen; }
@@ -566,6 +650,7 @@ void sliderSet(int id, int v)
 	for(const Slider &s : g_sl) if(s.id == id) v = std::max(s.lo, std::min(s.hi, v));
 	switch(id){ case 1: g_opt.music = v; break; case 2: g_opt.sound = v; break; case 3: g_opt.speed = v + 2; break; case 4: g_opt.difficulty = v; break; case 5: g_opt.fullscreen = v; break; default: g_opt.character = v + 3; }
 	applyOptions();
+	rm8Log("option: slider %d = %d (difficulty %d, speed %d, music %d, sound %d, fullscreen %d)", id, v, g_opt.difficulty, g_opt.speed, g_opt.music, g_opt.sound, g_opt.fullscreen);
 }
 void placeKnobs()
 {
@@ -577,6 +662,9 @@ void placeKnobs()
 	}
 }
 void langLabel(){ rm8UiSetText(g_ui, g_langBtn, std::string(u8"文字：") + (g_opt.simplified ? u8"簡體" : u8"繁體")); }
+// [R] rules_plus switch: the option menu has no free control, so a second runtime button sits next to the language button (the setting is the default of the NEXT game; a running
+// game keeps its own rule set, rules_plus.h)
+void plusLabel(){ rm8UiSetText(g_ui, g_plusBtn, std::string(u8"增強人機規則：") + (g_opt.plus ? u8"開" : u8"關")); }
 void enterOption()
 {
 	Rm8Ui *u = loadUi("optionMenu");
@@ -587,14 +675,18 @@ void enterOption()
 		for(Slider &s : g_sl) s.knob = rm8UiAddWidget(u, "plane", 0, 0, 0, 64, 64, 212, 0, 16, 4);
 		g_langBtn = rm8UiAddWidget(u, "button", 0, 180, 640, 300, 40, -1, 0x00000000, 22, 6);	// [A] text language switch (Simplified / Traditional)
 		rm8UiSetColorN(u, ("dyn" + std::to_string(g_langBtn)).c_str(), 0xff202060);
+		g_plusBtn = rm8UiAddWidget(u, "button", 0, 500, 640, 300, 40, -1, 0x00000000, 22, 6);	// [R] enhanced AI / house rules switch (rules_plus), same look as the language button
+		rm8UiSetColorN(u, ("dyn" + std::to_string(g_plusBtn)).c_str(), 0xff202060);
+		rm8Log("option: runtime buttons: language %d, rules_plus %d", g_langBtn, g_plusBtn);
 	}
 	setScreenUi(u, [](int id){
 		if(id == 7){ saveOptions(); go(S_MAIN); }
 		else if(id == g_langBtn){ g_opt.simplified = !g_opt.simplified; rm8ZhEnable(g_opt.simplified); langLabel(); saveOptions(); }
+		else if(id == g_plusBtn){ g_opt.plus = !g_opt.plus; plusLabel(); saveOptions(); rm8Log("option: rules_plus = %d", g_opt.plus ? 1 : 0); }
 	});
 	g_back = [](){ saveOptions(); go(S_MAIN); };
 	g_drag = -1;
-	langLabel();
+	langLabel(); plusLabel();
 	placeKnobs();
 }
 // slider dragging: pointer in screen pixels, kind 0 down / 1 move / 2 up
@@ -672,10 +764,10 @@ void enterLoad()
 {
 	Rm8Ui *u = loadUi("slmenu");
 	setScreenUi(u, [](int id){
-		if(id == 21) go(S_GAME);
+		if(id == 21){ if(g_netLoad){ g_netLoad = false; if(rm8MenuHooks().netLeave) rm8MenuHooks().netLeave(); } else go(S_GAME); }	// [N] the netplay resume's load menu goes back to the 联机 page
 		else if(id >= 1 && id <= 10){ if(rm8MenuHooks().loadGame && rm8MenuHooks().loadGame(id, !g_setup.story)) g_result = RM8MENU_LOAD_GAME; }
 	});
-	g_back = [](){ go(S_GAME); };
+	g_back = [](){ g_click(21); };
 	loadRefresh();
 }
 
@@ -759,8 +851,16 @@ void autoStep()
 	if(t == "sys" || t == "sys6" || t == "sysok"){ gsysAuto(t == "sys" ? 0 : t == "sys6" ? 1 : 2); return; }
 	if(t.rfind("shot:", 0) == 0){ g_auto.pendingShot = arg(1); g_auto.wait = 3; return; }
 	if(t.rfind("wait:", 0) == 0){ g_auto.wait = atoi(arg(1).c_str()); return; }
+	if(t.rfind("optset:", 0) == 0){ sliderSet(atoi(arg(1).c_str()), atoi(arg(2).c_str())); return; }	// optset:slider:value = Config_ApplySetting without the pointer (also while a game runs)
 	if(t == "back"){ if(g_back) g_back(); return; }
 	if(t == "skip"){ rm8StoryHostSkip(); return; }	// the click that skips the host (Cls_5e81e0__vf13 @0x5041f0)
+	if(t == "netbtn"){	// [N] a real pointer tap on the 联机 button of the mult page
+		float x, y, w, h;
+		if(g_ui && g_netBtn && rm8UiGetScreenRect(g_ui, g_netBtn, x, y, w, h)){ float cx = x + w / 2, cy = y + h / 2; rm8UiPointerMove(cx, cy); rm8UiPointerDown(cx, cy); rm8UiPointerUp(cx, cy); }
+		else rm8Log("menu auto: no 联机 button");
+		return;
+	}
+
 	// tap:id = a real pointer press / release (touch) at the centre of widget id of the current screen: tests the hit testing, not only the handler
 	if(t.rfind("tap:", 0) == 0){
 		float x, y, w, h;
@@ -791,10 +891,28 @@ void autoStep()
 std::string rm8MenuMapDir(int id){ return mapDirOf(id); }
 
 // ---- public interface
+// [A] the options exist from the start of the program, also without the menus (--map / --shot / --load runs): init.txt, then rm8_settings.txt over it, pushed to the game
+void rm8MenuLoadOptions(const std::string &gameDir, const std::string &scenesRoot)
+{
+	g_game = gameDir;
+	g_settingsFile = (std::filesystem::path(rm8UserDataDir(scenesRoot)) / "rm8_settings.txt").string();	// [A] user data folder (scene.cpp)
+	loadOptions();
+	applyOptions();
+	rm8Log("options: music %d sound %d speed %d (ini %d) difficulty %d fullscreen %d", g_opt.music, g_opt.sound, g_opt.speed, g_opt.speed - 2, g_opt.difficulty, g_opt.fullscreen);
+}
+// [V] every difficulty read of the original is InitTxt_GetParam(7) at the moment of the decision (AI_PlanCardActions @0x4f9670, Role_UseSpecialCard @0x4fbd10, Card_SelectCheap @0x4fd1b0,
+// MagicHouse_GenerateOneNumber @0x4cba90, MiniGame_ExecuteGame @0x4fcb10, py_Role_GameDffty @0x4ffc70): the single source here is the option slider (g_opt.difficulty), read live.
+// RM8_DIFFICULTY (1..3) is a test override only.
+int rm8Difficulty()
+{
+	if(int d = rm8NetOptDifficulty(); d >= 1 && d <= 3) return d;	// [N] a netplay game: the host's difficulty for every device
+	if(const char *e = getenv("RM8_DIFFICULTY")){ int v = atoi(e); if(v >= 1 && v <= 3) return v; }
+	return g_opt.difficulty;
+}
 bool rm8MenuInit(const std::string &gameDir, const std::string &scenesRoot, const std::vector<std::string> &maps)
 {
-	g_game = gameDir; g_root = scenesRoot;
-	g_settingsFile = (std::filesystem::path(rm8UserDataDir(scenesRoot)) / "rm8_settings.txt").string();	// [A] user data folder (scene.cpp)
+	g_root = scenesRoot;
+	rm8MenuLoadOptions(gameDir, scenesRoot);
 	g_stages.clear(); g_downloads.clear();
 	std::ifstream sf(scenesRoot + "/stages.txt"); std::string line;
 	while(std::getline(sf, line)){
@@ -811,10 +929,8 @@ bool rm8MenuInit(const std::string &gameDir, const std::string &scenesRoot, cons
 		if(tk.size() < 5) continue;
 		RoleInfo &r = g_roles[atoi(tk[1].c_str())]; r.id = atoi(tk[1].c_str()); r.pic = tk[tk.size() - 3]; r.name = tk.back(); if(tk.size() >= 36) r.sex = atoi(tk[tk.size() - 4].c_str());	// [H] roleinfo +0x304 = the field after Id = sex (roles.txt: ... sex pic AI name)
 	}
-	loadOptions();
 	rm8MenuExtraInit(gameDir, scenesRoot);
 	rm8MenuAnimInit(scenesRoot);
-	applyOptions();
 	if(const char *a = getenv("RM8_MENU_AUTO")){
 		g_auto.on = true; std::string s = a, cur;
 		for(char c : s){ if(c == ','){ if(!cur.empty()) g_auto.tok.push_back(cur); cur.clear(); } else cur += c; }
@@ -851,9 +967,91 @@ void rm8MenuOpenPage(Rm8MenuPage page)
 		g_setup.map = 0; go(S_ROLES); break;
 	case RM8PAGE_MAP_NEXT: g_mapInit = 0xB; go(S_MAP); break;
 	case RM8PAGE_FINAL: go(S_FINAL); break;
+	case RM8PAGE_FREE_GAME: g_setup.story = false; go(S_GAME); break;	// [N] netplay screens -> the mult page again
+	case RM8PAGE_FREE_MAP: g_setup.story = false; g_mapInit = 1; go(S_MAP); break;	// [N] "建立主机": the free game setup (map menu -> role menu -> the host lobby)
+	case RM8PAGE_NET_LOAD: g_setup.story = false; g_netLoad = true; go(S_LOAD); break;	// [N] "读取联机存档": the free game's records; the pick resumes it as a netplay game
 	}
 	rm8MusicPlay(101, true);
 }
+// ---- [N] netplay room on the original screens (menu.h)
+void rm8MenuNetSetMode(int mode)
+{
+	if(mode == g_netMode) return;
+	g_netMode = mode; g_netMySeat = -1;
+	if(mode == RM8MENU_NET_HOST){ g_netSeats.clear(); netSeatsSync(); }
+	else if(mode == RM8MENU_NET_OFF){ g_netSeats.clear(); if(g_active && g_scr == S_ROLES && g_ui) rolesRefresh(); }
+}
+int rm8MenuNetMode(){ return g_netMode; }
+void rm8MenuNetTestRoom(const Rm8Setup &st, const std::vector<int> &kinds)
+{
+	if(!g_inited) return;
+	g_active = true; g_result = RM8MENU_RUNNING; g_time = 0; rm8MenuAnimReset(); rm8UiHideAll();
+	rm8MenuNetSetMode(RM8MENU_NET_HOST);
+	g_setup = st; g_setup.story = false;
+	g_netSeats.clear(); netSeatsSync();
+	for(size_t k = 0; k < g_netSeats.size() && k < kinds.size(); k++) if(!g_setup.seats[k].computer) g_netSeats[k].kind = kinds[k] == 0 ? 0 : 1;
+	netSeatsSync();
+	go(S_ROLES);
+	rm8MusicPlay(101, true);
+}
+bool rm8MenuNetLoadPage(){ return g_netLoad; }
+bool rm8MenuNetGet(Rm8MenuNetView &v)
+{
+	if(g_netMode != RM8MENU_NET_HOST) return false;
+	netSeatsSync();
+	v.screen = !g_active ? 0 : g_scr == S_MAP ? 1 : g_scr == S_ROLES ? 2 : 0;
+	v.setup = g_setup; v.setup.story = false;
+	v.sel = g_rm.sel; v.seats = g_netSeats;
+	return true;
+}
+void rm8MenuNetMirror(const Rm8MenuNetView &v, int mySeat)
+{
+	if(!g_inited) return;
+	bool opened = false;
+	if(!g_active || g_netMode != RM8MENU_NET_MIRROR){ g_active = true; g_result = RM8MENU_RUNNING; g_time = 0; rm8MenuAnimReset(); rm8UiHideAll(); g_scr = S_NONE; rm8MusicPlay(101, true); opened = true; }
+	g_netMode = RM8MENU_NET_MIRROR;
+	int oldMine = g_netMySeat; g_netMySeat = mySeat;
+	g_setup.story = false;
+	Scr want = v.screen == 2 ? S_ROLES : S_MAP;
+	bool fresh = opened || g_scr != want;
+	if(fresh) go(want);
+	g_setup.map = v.setup.map; g_setup.cash = v.setup.cash; g_setup.tickets = v.setup.tickets; g_setup.vehicle = v.setup.vehicle; g_setup.timeLimit = v.setup.timeLimit; g_setup.winCond = v.setup.winCond;
+	g_setup.seats = v.setup.seats; g_netSeats = v.seats;
+	if(want == S_MAP) mapApplyLabels();
+	else {
+		int n = (int)g_setup.seats.size();
+		if(fresh || mySeat != oldMine) g_rm.sel = mySeat >= 0 ? mySeat : n > 0 ? 0 : -1;	// the client looks at its own seat (a tap on another seat's head shows that one)
+		if(g_rm.sel >= n) g_rm.sel = n - 1;
+		if(g_rm.sel < 0 && n > 0) g_rm.sel = 0;
+		rolesRefresh();
+	}
+}
+bool rm8MenuNetSetSeatRole(int serial, int charId, int outfit)
+{
+	if(g_netMode != RM8MENU_NET_HOST) return false;
+	netSeatsSync();
+	int k = -1; for(size_t i = 0; i < g_netSeats.size(); i++) if(g_netSeats[i].serial == serial) k = (int)i;
+	if(k < 0 || k >= (int)g_setup.seats.size()) return false;
+	Rm8Seat s = g_setup.seats[k];
+	if(charId >= 1 && charId <= 16) s.charId = charId;
+	auto used = [&](int c, int o){ for(int i = 0; i < (int)g_setup.seats.size(); i++) if(i != k && g_setup.seats[i].charId == c && g_setup.seats[i].outfit == o) return true; return false; };
+	if(outfit < 0){
+		if(s.charId == g_setup.seats[k].charId) return true;	// the same character again: nothing to do
+		int o = 0; while(o < 4 && used(s.charId, o)) o++;	// [V] like a role click (@0x5065f0): the first outfit no other seat of that role uses
+		if(o >= 4) return false;
+		s.outfit = o;
+	}
+	else if(outfit <= 4 && !used(s.charId, outfit)) s.outfit = outfit;
+	else return false;
+	g_setup.seats[k] = s;
+	if(g_active && g_scr == S_ROLES && g_ui) rolesRefresh();
+	return true;
+}
+void rm8MenuSetNetLast(const std::string &addr){ if(addr.empty() || addr.size() > 200 || addr == g_opt.netLast) return; g_opt.netLast = addr; if(!g_settingsFile.empty()) saveOptions(); }	// [N]
+void rm8MenuSetNetName(const std::string &name){ if(name.size() > 64 || name == g_opt.netName) return; g_opt.netName = name; if(!g_settingsFile.empty()) saveOptions(); }	// [N]
+bool rm8MenuRoleInfo(int id, std::string &name, std::string &pic){ auto it = g_roles.find(id); if(it == g_roles.end()) return false; name = it->second.name; pic = it->second.pic; return true; }	// [N] the lobby's seat rows
+
+
 void rm8MenuPlayStaffCredits(){ if(g_active && g_inited) goExtra(RM8X_MOVIE_STAFF); }
 bool rm8MenuActive(){ return g_active; }
 const Rm8Setup &rm8MenuSetup(){ return g_setup; }
@@ -877,6 +1075,7 @@ bool rm8MenuEvent(const SDL_Event &e, int w, int h)
 	switch(e.type){
 	case SDL_KEYDOWN:
 		if(e.key.keysym.scancode == SDL_SCANCODE_AC_BACK || e.key.keysym.sym == SDLK_ESCAPE){ if(g_back) g_back(); return true; }
+		if(g_netMode && e.key.keysym.sym == SDLK_o && g_click && (g_scr == S_MAP || g_scr == S_ROLES)){ g_click(g_scr == S_ROLES ? 17 : 118); return true; }	// [N] O in a netplay room: the O button (host: go on / start, client: ready)
 		return true;	// no other key reaches the board code
 	case SDL_MOUSEMOTION: if(e.motion.which == SDL_TOUCH_MOUSEID) return true; rm8UiPointerMove((float)e.motion.x, (float)e.motion.y); optionPointer(1, (float)e.motion.x, (float)e.motion.y); return true;
 	case SDL_MOUSEBUTTONDOWN: if(e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT) { rm8StoryHostSkip(); rm8UiPointerDown((float)e.button.x, (float)e.button.y); optionPointer(0, (float)e.button.x, (float)e.button.y); } return true;
@@ -902,7 +1101,7 @@ Rm8MenuResult rm8MenuUpdate(float dt)
 	return g_result;
 }
 
-void rm8MenuRender(Camera *cam){ if(g_active){ rm8MenuExtraRender(cam); rm8UiRender(cam); rm8StoryHostRender(cam); rm8MenuAnimRender(cam); } }
+void rm8MenuRender(Camera *cam){ if(g_active){ rm8MenuExtraRender(cam); rm8UiRender(cam); rm8StoryHostRender(cam); rm8MenuAnimRender(cam); rm8UiRenderLate(cam); } }	// [N] late UIs: the netplay room overlay stays readable over the seat dolls
 
 #ifdef RM8_MENU_SDL
 void rm8MenuPostRender(int w, int h)

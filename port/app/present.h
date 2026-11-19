@@ -37,12 +37,12 @@ bool rm8PresentChance70();
 
 // ---- hooks called by the rules / turn flow (each cites its original in present.cpp)
 bool rm8PresentMessage(int seat, int cmd, int a, int b);	// 0x5A, 0x2C, 0x2E, 0x52, 0x53, 0x54..0x56 (+ observes 0x16 / 0x17); true = consumed
-void rm8PresentMoney(int seat, long amount, bool gain);	// Role_AddMoney / Role_SubMoney(emote) @0x489b80 / 0x489ac0 (the 70 % emote)
-void rm8PresentRent(int payer, int owner, long rent);		// Role_TransferRentToOwner @0x487f20 (60 % / 40 % emotes + the 0x2E hand-off)
+void rm8PresentMoney(int seat, int32_t amount, bool gain);	// [N] Role_AddMoney / Role_SubMoney(emote) @0x489b80 / 0x489ac0 (the 70 % emote)
+void rm8PresentRent(int payer, int owner, int32_t rent);		// Role_TransferRentToOwner @0x487f20 (60 % / 40 % emotes + the 0x2E hand-off)
 void rm8PresentOnStop(int seat);				// CPlayerTag::OnStopAtTerra @0x485c00: meeting dialogue with a role on the same node
 void rm8PresentLandTaken(int seat, int prevOwner);	// Role_TakeLandOwnership(t, b != 0) @0x487250 (not wired: no sender in the port yet)
-void rm8PresentRentExempt(int seat, long rent);		// Role_CheckRentExempt @0x486580: the 70 % emote 0xD / 0xE / 0xF when the owner's status exempts the rent
-void rm8PresentBuy(int seat, int terra, long price);	// Role_BuyLandConfirmed @0x487030 (after the purchase): emote 1 / 0x11 (sample 1 is boardfx.cpp's)
+void rm8PresentRentExempt(int seat, int32_t rent);		// [N] Role_CheckRentExempt @0x486580: the 70 % emote 0xD / 0xE / 0xF when the owner's status exempts the rent
+void rm8PresentBuy(int seat, int terra, int32_t price);	// Role_BuyLandConfirmed @0x487030 (after the purchase): emote 1 / 0x11 (sample 1 is boardfx.cpp's)
 void rm8PresentBuild(int seat, int terra, int level);	// Role_BuildOnLand @0x487380 (after the new level): emote 1 / 2 / 0x10 / 0x12, firework at level 5
 void rm8PresentSetStory(bool on);				// [V] the role-meeting dialogues (OnStopAtTerra) only exist in the story mode (&DAT_00632de8 +0); default off, env RM8_STORY=1
 void rm8PresentUpdate(float dt);				// per frame (called from rm8RolesUpdate)

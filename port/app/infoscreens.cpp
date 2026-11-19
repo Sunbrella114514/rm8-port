@@ -226,10 +226,10 @@ void piFillColumn(int n, int seat)	// n = 1..4
 	}
 	rm8UiSetEnabled(g_pl, b, true);
 	rm8UiSetPicFile(g_pl, b, std::string("prt\\npc\\") + rm8TurnPic(seat) + "_12.tga");
-	long cash = rm8GameCash(seat), dep = rm8GameDeposit(seat), loan = rm8EventLoan(seat), stk = rm8StockValue(seat), pts = rm8GamePoints(seat), terra = 0;
+	int32_t cash = rm8GameCash(seat), dep = rm8GameDeposit(seat), loan = rm8EventLoan(seat), stk = rm8StockValue(seat), pts = rm8GamePoints(seat), terra = 0;	// [N] int32_t
 	for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == seat) terra += rm8GameTerraPrice(t);
-	long net = dep + cash - loan + stk + terra;	// [V] Role_CalculateNetCash @0x490140
-	long v[8] = {0, net, cash, dep, stk, pts, terra, loan};
+	int32_t net = rm8Add32(rm8Add32(rm8Sub32(rm8Add32(dep, cash), loan), stk), terra);	// [N] display only, the same 32-bit wrap as the rules; [V] Role_CalculateNetCash @0x490140
+	int32_t v[8] = {0, net, cash, dep, stk, pts, terra, loan};
 	for(int k = 1; k <= 7; k++) rm8UiSetText(g_pl, b + k, std::to_string(v[k]));
 }
 
@@ -540,7 +540,7 @@ std::string plotText(int t)
 	std::string text = buf;
 	if(ow >= 0 && ow < rm8TurnRoleCount()){
 		snprintf(c2, sizeof c2, rm8Str(18).c_str(), rm8TurnName(ow)); text += c2;	// str 18 "\地主：%s"
-		long rent = rm8GameTerraRent(t, false);
+		int32_t rent = rm8GameTerraRent(t, false);	// [N] int32_t
 		if(ty == 1 && rent > 0){
 			if(ow == rm8EventWonderOwner(1)) rent = rent * 20 / 100 + rent;	// the land wonder's owner earns 20 % more (Wonder_CheckConstruction(1))
 			snprintf(c2, sizeof c2, rm8Str(19).c_str(), (int)rent); text += c2;	// str 19 "\租金：%d元"

@@ -11,6 +11,7 @@
 #include "present.h"
 #include "audio.h"
 #include "scene.h"
+#include "rules_plus.h"
 void rm8HudSeatClick(int seat);
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +47,62 @@ void goShowSlots(int maxDice)
 int goSignature(){ int cur = rm8TurnCurrent(); int m = g_evGo ? 1 : rm8TurnDiceMax(cur); return m | (goSlotOn(1) ? 4 : 0) | (goSlotOn(2) ? 8 : 0); }
 int g_modalSeat = -1;
 std::string g_pic[8];
+// [R] rules_plus B3: small reddish portraits of the roles a seat hates, under its portrait (gmaindlg label 27 + k at x 684 / 755 / 826 / 896, its portrait button 1 + k at (32, 20) 64 x 64 inside it: the free
+// band is y 88 .. 128). up to 3 icons of 20 design pixels (64 px for 3 with 2 px gaps = the portrait's width), a dark red frame behind each, the picture tinted red (colour multiply)
+const int HATE_MAX = 3;
+int g_hateBg[4][HATE_MAX], g_hatePic[4][HATE_MAX], g_hateSig[4] = {-2, -2, -2, -2};
+void hateIconsInit()
+{
+	for(int &g : g_hateSig) g = -2;
+	for(int k = 0; k < 4; k++) for(int j = 0; j < HATE_MAX; j++){
+		g_hateBg[k][j] = rm8UiAddWidget(g_main, "plane", 0, 0, 0, 22, 22, -1, 0xF0801818, 16, 9);
+		g_hatePic[k][j] = rm8UiAddWidget(g_main, "plane", 0, 0, 0, 20, 20, -1, 0, 16, 10);
+		rm8UiSetIgnore(g_main, g_hateBg[k][j], true); rm8UiSetIgnore(g_main, g_hatePic[k][j], true);
+		rm8UiSetTint(g_main, g_hatePic[k][j], 0xFFFF8484);
+		rm8UiSetVisible(g_main, g_hateBg[k][j], false); rm8UiSetVisible(g_main, g_hatePic[k][j], false);
+	}
+}
+// [R] user 2026-11-18: every seat permanently shows the OTHER seats (seat order) under its portrait; the red of each mini portrait grows with the hate score
+// (0 = untinted, >= the hate threshold = full red); the roles it actively hates (rm8HateList, the top hateMaxCount) also get a bright red frame
+void hateIconsUpdate()
+{
+	const Rm8PlusTuning &t = rm8PlusTuning();
+	int lv = std::max(1, std::min(3, rm8RulesLevel())) - 1;
+	float thr = std::max(0.1f, t.hateThreshold[lv]);
+	for(int k = 0; k < 4; k++){
+		int oth[8], n = 0, hl[8], nh = 0;
+		bool show = rm8RulesOn() && k < rm8TurnRoleCount() && !g_pic[k].empty() && rm8TurnStatus(k) != 7;
+		if(show){
+			for(int a = 0; a < rm8TurnRoleCount() && a < 8 && n < HATE_MAX; a++) if(a != k && !g_pic[a].empty() && rm8TurnStatus(a) != 7) oth[n++] = a;
+			nh = rm8HateList(k, hl);
+		}
+		int lvl[HATE_MAX] = {0, 0, 0}; bool act[HATE_MAX] = {false, false, false};
+		int sig = 7;
+		for(int j = 0; j < n; j++){
+			float f = std::max(0.0f, std::min(1.0f, rm8HateScore(k, oth[j]) / thr));
+			lvl[j] = (int)(f * 8.0f + 0.5f);	// 9 shades
+			for(int h = 0; h < nh; h++) act[j] |= hl[h] == oth[j];
+			sig = sig * 31 + oth[j] * 20 + lvl[j] * 2 + (act[j] ? 1 : 0);
+		}
+		if(sig == g_hateSig[k]) continue;
+		g_hateSig[k] = sig;
+		float lx = 0, ly = 0, lw, lh, bx = 0, by = 0, bw = 64, bh = 64;
+		rm8UiGetRect(g_main, 27 + k, lx, ly, lw, lh); rm8UiGetRect(g_main, 1 + k, bx, by, bw, bh);
+		float x0 = lx + bx + (bw - (n * 22 + (n > 0 ? (n - 1) * 1 : 0))) / 2, y0 = ly + by + bh + 5;
+		for(int j = 0; j < HATE_MAX; j++){
+			bool on = j < n;
+			if(on){
+				float x = x0 + j * 23, f = lvl[j] / 8.0f;
+				unsigned gb = (unsigned)(255.0f * (1.0f - 0.8f * f));	// white -> deep red
+				rm8UiSetTint(g_main, g_hatePic[k][j], 0xFF000000u | 0x00FF0000u | (gb << 8) | gb);
+				rm8UiSetBColor(g_main, g_hateBg[k][j], act[j] ? 0xF0E01010u : 0xC0302828u);	// active hate: a bright red frame; otherwise a neutral dark one
+				rm8UiSetRect(g_main, g_hateBg[k][j], x, y0, 22, 22); rm8UiSetRect(g_main, g_hatePic[k][j], x + 1, y0 + 1, 20, 20);
+				rm8UiSetPicFile(g_main, g_hatePic[k][j], "prt\\npc\\" + g_pic[oth[j]] + "_12.tga");
+			}
+			rm8UiSetVisible(g_main, g_hateBg[k][j], on); rm8UiSetVisible(g_main, g_hatePic[k][j], on);
+		}
+	}
+}
 const char *NUM2 = "font\\number2.tga";
 const char *NUM2_CODES = "12345abcde67890fgh  ";	// [V] 0x5e6424, 5 x 4 cells of 25.6 x 32
 }
@@ -66,6 +123,7 @@ void rm8HudInit(const std::vector<std::string> &pics)
 			if(!g_pic[k].empty()) rm8UiSetPicFile(g_main, k + 1, "prt\\npc\\" + g_pic[k] + "_12.tga");
 			else { rm8UiSetVisible(g_main, 27 + k, false); rm8UiSetVisible(g_main, k + 1, false); }
 		}
+		hateIconsInit();	// [R] rules_plus B3 (hidden until somebody hates somebody)
 		rm8CardsHudInit(g_main);	// the card bar: widgets 11..18 pictures, 19..26 names, 31..38 buttons (cards.cpp)
 		rm8UiOnClick(g_main, [](int id){ if(id >= 1 && id <= 4) rm8HudSeatClick(id - 1); else if(id >= 31 && id <= 38) rm8CardsOnSlotClick(id - 31); else if(id == 10) rm8MenuGameSystemOpen(true); else if(id == 7) rm8StockOpenFromHud(rm8TurnCurrent()); else if(id == 6 || id == 8 || id == 9) rm8InfoOpenFromHud(id, rm8TurnCurrent()); });	// [V] CGamePlayScene vf12 @0x4a2e10: 6 -> 0x67 wincondition, 8 -> 0x66 playerinfo, 9 -> 0x65 minimap (infoscreens.cpp)	// [V] Card_OnSelected @0x4e9340
 		rm8UiShow(g_main, true);
@@ -166,6 +224,7 @@ void rm8HudRender(Camera *cam)
 	rm8StockTick();	// stock.cpp: test hooks of the stock board
 	rm8InfoTick(cam);	// infoscreens.cpp: scroll bar / slider drags, the minimap hover, test hooks
 	rm8CardsHudUpdate(g_main, cam);
+	hateIconsUpdate();
 	rm8UiRender(cam);
 	rm8CardsHudRender(cam);
 	// [V] number2 sprite strings at fixed 1024x768 positions, scale s, spacing -6 s
@@ -174,8 +233,8 @@ void rm8HudRender(Camera *cam)
 	char wch[2] = {wd >= 1 && wd <= 7 ? (char)('a' + wd - 1) : 'g', 0};
 	char mtxt[8], dtxt[8], c1[16], c2[16], c3[16], c4[16];
 	snprintf(mtxt, sizeof mtxt, "%2d", mo); snprintf(dtxt, sizeof dtxt, "%2d", d);
-	long cash, dep; rm8GameHud(cur, cash, dep);
-	snprintf(c1, sizeof c1, "%ld", cash); snprintf(c2, sizeof c2, "%ld", dep); snprintf(c3, sizeof c3, "%ld", rm8GamePoints(cur)); snprintf(c4, sizeof c4, "%ld", rm8GamePI());
+	int32_t cash, dep; rm8GameHud(cur, cash, dep);	// [N] int32_t
+	snprintf(c1, sizeof c1, "%d", cash); snprintf(c2, sizeof c2, "%d", dep); snprintf(c3, sizeof c3, "%d", rm8GamePoints(cur)); snprintf(c4, sizeof c4, "%d", rm8GamePI());
 	struct { const char *t; float x, y; } items[] = {{wch, 105, 15}, {mtxt, 34, 38}, {dtxt, 96, 38}, {c1, 182, 38}, {c2, 365, 38}, {c3, 550, 38}, {c4, 640, 38}};
 	if(!rm8StockUiOpen() && !rm8BalanceActive() && !rm8InfoFullScreen())	// [A] the stock dialogs, the balance screen and the info screens cover the whole screen: the number sprites would be drawn over them
 		for(auto &it : items) rm8UiSheetText(cam, NUM2, 5, 4, 25.6f, 32.0f, NUM2_CODES, it.t, it.x * sx, it.y * sy, sy, -6.0f * sy);

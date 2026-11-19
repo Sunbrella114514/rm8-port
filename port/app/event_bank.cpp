@@ -6,6 +6,8 @@
 //     edit box (CUi_bank vf: Bank_OnAmountInput @0x4c1f70); the buttons are the touch entry.
 #include "event_int.h"
 #include "audio.h"
+#include "rules_plus.h"
+#include "save.h"
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -15,11 +17,11 @@ namespace ev {
 
 namespace {
 
-const long MONEY_MAX = 999999999;
+const int32_t MONEY_MAX = 999999999;	// [N] int32_t
 
 // [V] the loan record at role +0x298: principal, the date it was taken (g_GameState +4 year, +8 month, +0xC day), flags (hi 16 bits:
 // number of monthly interest payments, lo 16 bits 3 = months)
-struct Loan { long principal = 0; int y = 0, m = 0, d = 0, count = 0; };
+struct Loan { int32_t principal = 0; int y = 0, m = 0, d = 0, count = 0; };	// [N] int32_t
 std::vector<Loan> g_loan;
 Loan &loanOf(int seat){ if((int)g_loan.size() <= seat) g_loan.resize(seat + 1); return g_loan[std::max(0, seat)]; }
 
@@ -45,7 +47,7 @@ struct BankTask : Task {
 	float timer = 0;			// [V] +8
 	int phase = 0;				// [V] +0x3C: 0 welcome, 1 menu, 9 closing
 	int mode = 7;				// [V] +0x34: 0 deposit, 1 withdraw, 2 loan, 3 loan sizes, 4 repay, 5 done, 6 finished
-	long amount = 0;			// [V] +0x38
+	int32_t amount = 0;			// [N] [V] +0x38
 	int voice = 0;				// [V] +0x20 the playing voice sample
 	Npc *npc = nullptr;			// [V] article 0x419 (event_npc.cpp)
 	bool editVisible = false;
@@ -86,7 +88,7 @@ struct BankTask : Task {
 		}
 	}
 	// [V] Bank_GetMaxAmount @0x4c2640
-	long maxAmount()
+	int32_t maxAmount()	// [N] int32_t
 	{
 		switch(mode){
 		case 0: return rm8GameCash(seat);
@@ -96,7 +98,7 @@ struct BankTask : Task {
 		}
 		return 0;
 	}
-	void showAmount(){ char b[32]; snprintf(b, sizeof b, "%ld", amount); editText(b); }
+	void showAmount(){ char b[32]; snprintf(b, sizeof b, "%d", amount); editText(b); }
 
 	BankTask(int s, bool pass) : passing(pass)
 	{
@@ -143,7 +145,7 @@ struct BankTask : Task {
 		txt("bigInfo", plainFmt(5410));
 		mode = 5; timer = 1.6f * waitScale(); phase = 9;
 		speak(4604); npcPlay(npc, 3);
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: bank done seat %d: cash %ld deposit %ld loan %ld", seat, rm8GameCash(seat), rm8GameDeposit(seat), loanPrincipal(seat));
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: bank done seat %d: cash %d deposit %d loan %d", seat, rm8GameCash(seat), rm8GameDeposit(seat), loanPrincipal(seat));
 	}
 
 	// [V] Bank_OnButton @0x4c1240
@@ -167,11 +169,11 @@ struct BankTask : Task {
 	void loanButton(int d)
 	{
 		if(mode == 3 && d >= 1 && d <= 3){
-			loanTake(seat, 100000L * d);
+			loanTake(seat, 100000 * d);	// [N] int32_t
 			complete();
 		}
 		if(editVisible){
-			amount = amount * 10 + d;
+			amount = rm8Add32(rm8Mul32(amount, 10), d);	// [N] a typed 10-digit amount wraps like the original's 32-bit imul (explicit, no UB)
 			if(amount > maxAmount()) amount = maxAmount();
 			showAmount();
 		}
@@ -179,7 +181,7 @@ struct BankTask : Task {
 	void multiply100()	// [V] Bank_Multiply100 @0x4c2510
 	{
 		if(!editVisible) return;
-		amount *= 100;
+		amount = rm8Mul32(amount, 100);	// [N] 32-bit wrap (amount > 21474836 after the cap), explicit
 		if(amount > maxAmount()) amount = maxAmount();
 		showAmount();
 	}
@@ -246,7 +248,7 @@ struct BankTask : Task {
 		stopVoice();
 		panels(false, false, false, false, true);
 		amount = 0;
-		long p = loanPrincipal(seat);
+		int32_t p = loanPrincipal(seat);	// [N] int32_t
 		if(p < 1){ align("bigInfo", 1, 1); txt("bigInfo", plainFmt(5408)); return; }
 		mode = 4; clearButtons(true); buttonStates(); align("bigInfo", 1, 1);
 		std::string t = plainFmt(5419, (int)p);
@@ -266,7 +268,7 @@ struct BankTask : Task {
 	static void loanRepay(int s)	// [V] Bank_LoanRepay @0x47ea60
 	{
 		Loan &L = loanOf(s);
-		long c = rm8GameCash(s), d = rm8GameDeposit(s) - L.principal;
+		int32_t c = rm8GameCash(s), d = rm8GameDeposit(s) - L.principal;	// [N] int32_t
 		if(d < 0){ c += d; d = 0; }
 		rm8GameSetMoney(s, c, d);
 		L.principal = 0; L.count = 0;
@@ -275,15 +277,16 @@ struct BankTask : Task {
 
 }	// namespace
 
-long loanPrincipal(int seat){ return seat >= 0 ? loanOf(seat).principal : 0; }
-void loanRecord(int seat, long amount){ Loan &L = loanOf(seat); if(L.principal != 0) return; int wd; rm8GameDate(L.y, L.m, L.d, wd); L.principal = amount; L.count = 0; }	// [V] Bank_TrySetLoan @0x47ea00
+int32_t loanPrincipal(int seat){ return seat >= 0 ? loanOf(seat).principal : 0; }	// [N] int32_t
+void loanRecord(int seat, int32_t amount){ Loan &L = loanOf(seat); if(L.principal != 0) return; int wd; rm8GameDate(L.y, L.m, L.d, wd); L.principal = amount; L.count = 0; }	// [V] Bank_TrySetLoan @0x47ea00
 void loanClear(){ g_loan.clear(); }
 
 // [V] Money_TakeLoan @0x47e970: only without an open loan; the amount goes to the deposit
-void loanTake(int seat, long amount)
+void loanTake(int seat, int32_t amount)	// [N] int32_t
 {
 	Loan &L = loanOf(seat);
 	if(L.principal != 0) return;
+	rm8RulesLoanTaken(seat);	// [R] a normal loan replaces nothing: the story-loan mark (rules_plus) only belongs to the scripted loan
 	moneyAdd(seat, amount, 1);
 	int wd; rm8GameDate(L.y, L.m, L.d, wd);
 	L.principal = amount; L.count = 0;
@@ -301,7 +304,7 @@ int loanDaysLeft(int seat)
 
 // [V] Bank_RollbackLoan @0x47eb70: months since the loan; < 3: 10% of the principal once per month on the loan day; later: the loan
 // is cleared and principal + 10% are due. Returns the amount to take (0 = nothing).
-long loanRollback(int seat)
+int32_t loanRollback(int seat)	// [N] int32_t
 {
 	Loan &L = loanOf(seat);
 	if(!L.principal) return 0;
@@ -310,27 +313,27 @@ long loanRollback(int seat)
 	if(mm < 3){
 		if(L.count < mm && (L.count + 1 < mm || L.d <= d)){ L.count++; return L.principal * 10 / 100; }
 	}else if(mm > 3 || L.d <= d){
-		long p = L.principal; L.principal = 0; L.count = 0;
+		int32_t p = L.principal; L.principal = 0; L.count = 0;	// [N] int32_t
 		return p * 10 / 100 + p;
 	}
 	return 0;
 }
 
-void moneyAdd(int s, long v, int account)
+void moneyAdd(int s, int32_t v, int account)	// [N] int32_t
 {
-	long c = rm8GameCash(s), d = rm8GameDeposit(s);
+	int32_t c = rm8GameCash(s), d = rm8GameDeposit(s);	// [N] int32_t
 	if(account == 0) c = std::min(MONEY_MAX, c + v); else if(account == 1) d = std::min(MONEY_MAX, d + v);
 	rm8GameSetMoney(s, c, d);
 }
-void moneyWithdraw(int s, long v, int account)
+void moneyWithdraw(int s, int32_t v, int account)	// [N] int32_t
 {
-	long c = rm8GameCash(s), d = rm8GameDeposit(s);
-	if(account == 0){ c -= v; if(c < 0){ d = std::max(0L, d + c); c = 0; } }
-	else if(account == 1){ d -= v; if(d < 0){ c = std::max(0L, c + d); d = 0; } }
+	int32_t c = rm8GameCash(s), d = rm8GameDeposit(s);	// [N] int32_t
+	if(account == 0){ c -= v; if(c < 0){ d = std::max(0, d + c); c = 0; } }
+	else if(account == 1){ d -= v; if(d < 0){ c = std::max(0, c + d); d = 0; } }
 	rm8GameSetMoney(s, c, d);
 }
-void moneyDeposit(int s, long v){ long c = std::max(0L, rm8GameCash(s) - v), d = std::min(MONEY_MAX, rm8GameDeposit(s) + v); rm8GameSetMoney(s, c, d); }
-void moneyTakeOut(int s, long v){ long c = std::min(MONEY_MAX, rm8GameCash(s) + v), d = std::max(0L, rm8GameDeposit(s) - v); rm8GameSetMoney(s, c, d); }
+void moneyDeposit(int s, int32_t v){ int32_t c = std::max(0, rm8GameCash(s) - v), d = std::min(MONEY_MAX, rm8GameDeposit(s) + v); rm8GameSetMoney(s, c, d); }	// [N] int32_t
+void moneyTakeOut(int s, int32_t v){ int32_t c = std::min(MONEY_MAX, rm8GameCash(s) + v), d = std::max(0, rm8GameDeposit(s) - v); rm8GameSetMoney(s, c, d); }
 
 Task *makeBankTask(int seat, bool passing)
 {
@@ -345,16 +348,31 @@ bool aiBank(int seat, bool stop)
 {
 	const char *script = rm8TurnAiScript(seat);
 	const std::string name = rm8TurnName(seat);
-	long r = 0;
-	if(stop && loanPrincipal(seat) < 1 && rm8PyCallAI(script, "Borrow", seat, r) && r > 0){
+	int32_t r = 0;	// [N] int32_t
+	// [R] rules_plus B1: early repayment when the AI has spare cash (at the bank, stopping or passing; never a story-scripted loan, rules_plus.h)
+	if(rm8RulesOn() && loanPrincipal(seat) > 0){
+		int32_t P = loanPrincipal(seat); const Loan &L = loanOf(seat);	// [N] int32_t
+		int y, m, d, wd; rm8GameDate(y, m, d, wd);
+		int age = (int)(rm8SaveCivilDays(y, m, d) - rm8SaveCivilDays(L.y, L.m, L.d));
+		if(rm8RulesRepayWanted(seat, rm8GameCash(seat) + rm8GameDeposit(seat), P, age, !stop)){
+			BankTask::loanRepay(seat);
+			rm8Log("rules+: seat %d (%s) repays the loan of %d early (cash %d deposit %d left, %d days after taking it, %d days before it is due)", seat, name.c_str(), P, rm8GameCash(seat), rm8GameDeposit(seat), age, loanDaysLeft(seat));
+			queueText(seat, name + u8"提前還清貸款" + std::to_string(P) + u8"元");
+			rm8TurnEnqueue(seat, 0x47, 0, 0);
+			if(!stop){ rm8TurnEnqueue(seat, 0x26, 0, 0); rm8TurnSetState(seat, 8); }	// resume the walk (as the Access branch below)
+			return true;
+		}
+	}
+	// [R] rules_plus B1: the script's Borrow() answer is vetoed / reduced (identity while the rules are off)
+	if(stop && loanPrincipal(seat) < 1 && rm8PyCallAI(script, "Borrow", seat, r) && r > 0 && (r = rm8RulesLoanDecide(seat, rm8GameCash(seat) + rm8GameDeposit(seat), r)) > 0){
 		loanTake(seat, r);
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: seat %d borrows %ld (cash %ld deposit %ld)", seat, r, rm8GameCash(seat), rm8GameDeposit(seat));
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: seat %d borrows %d (cash %d deposit %d)", seat, r, rm8GameCash(seat), rm8GameDeposit(seat));
 		queueText(seat, plainFmt(253, name.c_str(), (int)r));	// str 253 "%s<str#253>%d元"
 		rm8TurnEnqueue(seat, 0x47, 0, 0);
 		return true;
 	}
 	if(!rm8PyCallAI(script, "Access", seat, r) || r == 0) return false;
-	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: seat %d bank access %ld", seat, r);
+	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: seat %d bank access %d", seat, r);
 	if(r < 0){ r = -r; moneyDeposit(seat, r); queueText(seat, plainFmt(251, name.c_str(), (int)r)); }	// str 251 "%s<str#251>%d元"
 	else { moneyTakeOut(seat, r); queueText(seat, plainFmt(252, name.c_str(), (int)r)); }		// str 252 "%s<str#252>%d元"
 	rm8TurnEnqueue(seat, 0x47, 0, 0);
@@ -364,8 +382,10 @@ bool aiBank(int seat, bool stop)
 
 }	// namespace ev
 
-long rm8EventLoan(int seat){ return ev::loanPrincipal(seat); }
-void rm8EventSetLoan(int seat, long amount){ ev::loanRecord(seat, amount); }
+int32_t rm8EventLoan(int seat){ return ev::loanPrincipal(seat); }	// [N] int32_t
+int rm8EventLoanDaysLeft(int seat){ return ev::loanDaysLeft(seat); }
+// [R] the only caller is the story script (大老千 day 1): the loan is marked as story-scripted, the house rules (rules_plus: gate, early repayment, reserve) never touch it
+void rm8EventSetLoan(int seat, int32_t amount){ bool had = ev::loanPrincipal(seat) != 0; ev::loanRecord(seat, amount); if(!had && ev::loanPrincipal(seat) != 0) rm8RulesNoteStoryLoan(seat); }	// [N] int32_t
 
 // [V] Role_CheckLoanDueAndForceRepay @0x483170: the human gets the warning 5 / 3 / 1 days before the due date (str 5423); then the
 // monthly interest / the forced repayment: str 5421 (interest) or 5422 (principal + interest, loan cleared) and message 0x4E
@@ -377,9 +397,9 @@ void rm8EventTurnStart(int seat)
 		int days = loanDaysLeft(seat);
 		if(days == 5 || days == 3 || days == 1) queueText(seat, plainFmt(5423, rm8TurnName(seat), days));
 	}
-	long due = loanRollback(seat);
+	int32_t due = loanRollback(seat);	// [N] int32_t
 	if(due < 1) return;
-	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: seat %d loan payment %ld (principal left %ld, cash %ld deposit %ld)", seat, due, loanPrincipal(seat), rm8GameCash(seat), rm8GameDeposit(seat));
+	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: seat %d loan payment %d (principal left %d, cash %d deposit %d)", seat, due, loanPrincipal(seat), rm8GameCash(seat), rm8GameDeposit(seat));
 	queueText(seat, plainFmt(loanPrincipal(seat) < 1 ? 5422 : 5421, rm8TurnName(seat), (int)due));
 	rm8TurnEnqueue(seat, 0x4E, (int)due, 0);
 }

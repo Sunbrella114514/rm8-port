@@ -5,6 +5,7 @@
 // [A] the OrthoCam of the original is replaced by the event_npc.cpp presenter raster (judge article 0x411, the two dolls = roleinfo artId1).
 #include "event_int.h"
 #include "audio.h"
+#include "rules_plus.h"
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -135,6 +136,7 @@ struct CourtTask : Task {
 		const std::string acc = rm8TurnName(seat), def = rm8TurnName(accused);
 		bool win = charge == 2 ? r < 70 : r < 60;
 		int days = charge == 2 ? 3 : 5;
+		if(rm8RulesOn()) rm8HateNote(accused, seat, win ? rm8PlusTuning().hateCourtWin : rm8PlusTuning().hateCourtLose, win ? "sued in court: lost" : "sued in court: the suit failed");	// [R] B3
 		if(charge == 1 || charge == 2){
 			if(win){
 				say(plainFmt(4005, def.c_str(), days) + "@4004");
@@ -193,15 +195,23 @@ bool aiCourt(int seat)
 	for(int k = 0; k < rm8TurnRoleCount(); k++) if(k != seat && rm8TurnStatus(k) != 7) others.push_back(k);
 	if(others.empty()) return false;
 	int def = others[rnd() % others.size()];
-	long c = 0;
+	int hated = -1;
+	if(rm8RulesOn()){	// [R] rules_plus B3: the computer sues the role it hates (the draw above is still made: the shared random stream is used as before)
+		int hl[8], hn = rm8HateList(seat, hl);
+		for(int i = 0; i < hn && hated < 0; i++) if(std::find(others.begin(), others.end(), hl[i]) != others.end() && rm8HateAct(seat, hl[i], "sues it in court")) hated = hl[i];
+		if(hated >= 0) def = hated;
+	}
+	int32_t c = 0;	// [N] int32_t
 	rm8PyCallAI(rm8TurnAiScript(seat), "Count", 0, c);	// [V] Python Count: 0 contempt, 1 card abuse, 2 forced rent, anything else: no charge
-	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: court: computer seat %d: Count -> %ld, defendant seat %d", seat, c, def);
+	if(hated >= 0 && (c < 0 || c > 2)) c = rm8PlusRand() % 2;	// [R] the script would not sue anybody: the hate overrules it (contempt of the computer / card abuse)
+	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: court: computer seat %d: Count -> %d, defendant seat %d", seat, c, def);
 	if(c < 0 || c > 2) return false;
 	const std::string acc = rm8TurnName(seat), dn = rm8TurnName(def);
 	const std::string line = plainFmt(4004, acc.c_str(), dn.c_str(), plain(rm8Str(chargeNameStr((int)c + 1))).c_str());
-	bool win = (long)(rnd() % 100) < (c == 1 ? 70 : 60);
+	bool win = (int32_t)(rnd() % 100) < (c == 1 ? 70 : 60);	// [N] int32_t
+	if(rm8RulesOn()) rm8HateNote(def, seat, win ? rm8PlusTuning().hateCourtWin : rm8PlusTuning().hateCourtLose, win ? "sued in court: lost" : "sued in court: the suit failed");	// [R] B3
 	if(c == 2){
-		long amount = 5000L * rm8GamePI();
+		int32_t amount = 5000 * rm8GamePI();	// [N] int32_t
 		queueTextAt(seat, 0, line);
 		if(win){
 			queueTextAt(seat, 1, plainFmt(4028, dn.c_str(), (int)amount));
@@ -236,7 +246,7 @@ void bailMessage(int seat, int cmd, int a, int b)
 {
 	if(seat < 0 || seat >= 8) return;
 	if(cmd == 0x5d){
-		long bail = (long)a * 2000 * rm8GamePI(), wealth = rm8GameCash(seat) + rm8GameDeposit(seat);
+		int32_t bail = (int32_t)a * 2000 * rm8GamePI(), wealth = rm8GameCash(seat) + rm8GameDeposit(seat);	// [N] int32_t
 		g_bailDays[seat] = a; g_bailBy[seat] = b;
 		if(bail < wealth){
 			if(rm8TurnHuman(seat)){
@@ -245,7 +255,7 @@ void bailMessage(int seat, int cmd, int a, int b)
 				rm8TurnEnqueueAt(seat, 2, 0x5e, (int)bail, (int)0x80000000);
 				return;
 			}
-			if(wealth >= 30000L * rm8GamePI() && (rnd() & 1)){
+			if(wealth >= 30000 * rm8GamePI() && (rnd() & 1)){	// [N] int32_t
 				queueTextAt(seat, 0, plainFmt(4027, rm8TurnName(seat)));
 				rm8GameSubMoney(seat, bail, false);
 				return;

@@ -92,7 +92,7 @@ struct ShopTask : Task {
 
 	void click(const std::string &n) override
 	{
-		if(getenv("RM8_DEBUG_EVENTS")){ int k = -1; sscanf(n.c_str(), "card%d", &k); rm8Log("events: shop tap %s (phase %d%s, points %ld)", n.c_str(), phase, k >= 0 && k < SLOTS ? (std::string(", card ") + std::to_string(slot[k] + 1) + " price " + std::to_string(price(k))).c_str() : "", rm8GamePoints(seat)); }
+		if(getenv("RM8_DEBUG_EVENTS")){ int k = -1; sscanf(n.c_str(), "card%d", &k); rm8Log("events: shop tap %s (phase %d%s, points %d)", n.c_str(), phase, k >= 0 && k < SLOTS ? (std::string(", card ") + std::to_string(slot[k] + 1) + " price " + std::to_string(price(k))).c_str() : "", rm8GamePoints(seat)); }
 		if(n == "Exit"){ closeDialog(1.3f); return; }
 		int i = -1;
 		if(sscanf(n.c_str(), "card%d", &i) != 1) return;	// [V] CardShop_OnCardSelect @0x4e51b0: only the "card%d" widgets
@@ -123,7 +123,7 @@ struct ShopTask : Task {
 	bool update(float dt) override
 	{
 		tickets();
-		{ static long lastPts = -1; if(rm8GamePoints(seat) != lastPts){ lastPts = rm8GamePoints(seat); colors(); } }	// [V] CardShop_UpdatePriceColors @0x4e6d00 after a sale (Card_OnSelected)
+		{ static int32_t lastPts = -1; if(rm8GamePoints(seat) != lastPts){ lastPts = rm8GamePoints(seat); colors(); } }	// [N] [V] CardShop_UpdatePriceColors @0x4e6d00 after a sale (Card_OnSelected)
 		rm8UiSetPicN(ui, "Plane1", flashT > 0 ? 0x208 : 0x207);
 		flashT -= dt;
 		if(pendT > 0 && pending >= 0){	// [V] Cls_5e4a10__vf1__Update @0x4e6240: while the flight timer (+0x17c, 0.6 s) runs the card widget falls: Y = ftol(Y + height * 2.7 * dt) into the tray (cardOut)
@@ -171,7 +171,7 @@ int selectCheap(int seat)
 	int diff = difficulty();
 	if(!(diff > 1 || rnd() % 3 == 1)) return -1;
 	if(diff < 3) return cardSelectByDifficulty(1);
-	long tickets = rm8GamePoints(seat);
+	int32_t tickets = rm8GamePoints(seat);	// [N] int32_t
 	int c = -1, tries = 0;
 	if(rnd() % 2 == 1){
 		int cand[11], n = 0;

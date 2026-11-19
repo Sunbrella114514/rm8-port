@@ -29,7 +29,7 @@ struct Slots { Rm8Ui *ui = nullptr; Slot s[8]; } g_slots;
 struct VendueTask : Task {
 	int terra = -1;			// [V] +0x50
 	bool bankrupt = false;		// [V] +0x5c
-	long base = 1, price = 1;	// [V] +0x54 / +0x58
+	int32_t base = 1, price = 1;	// [N] [V] +0x54 / +0x58
 	float timer = 0;		// [V] +8
 	int state = 0;			// [V] +0x4c
 	int last = -1, cur = -1;	// [V] +0x60 (last bidder, -1 none) / +0x64 (the role that decides now)
@@ -40,9 +40,11 @@ struct VendueTask : Task {
 	float blink = 0;
 	Npc *npc = nullptr, *item = nullptr;
 	bool busy(){ return voice > 0 && rm8SndPlaying(voice); }
+	int inputSeat() const override { return cur >= 0 ? cur : seat; }	// [N] netplay: the bidder whose turn it is decides
 	int n(){ return std::min(rm8TurnRoleCount(), 8); }
+
 	bool elig(int s) const { return s >= 0 && s < rm8TurnRoleCount() && s < 8 && rm8TurnStatus(s) != 7 && !(bankrupt && s == seat); }	// [V] +0x5c: the bankrupt role (the current one) does not bid
-	long pi() const { return std::max(1L, rm8GamePI()); }	// [V] g_GameState +0x30
+	int32_t pi() const { return std::max(1, rm8GamePI()); }	// [N] [V] g_GameState +0x30
 	void say(const std::string &line, bool play = true)
 	{
 		int snd = 0; std::string t = plain(line, &snd);
@@ -62,7 +64,7 @@ struct VendueTask : Task {
 		seat = s; terra = t; bankrupt = bk;
 		ui = rm8UiLoad("vendue", RM8UI_DIALOG);
 		if(!ui) return;
-		base = std::max(1L, rm8GameAuctionBase(t)); price = base / 2;	// [V] +0x54 = Terra_CalcPrice(1) / 2; the loader: +0x58 = +0x54 / 2
+		base = std::max(1, rm8GameAuctionBase(t)); price = base / 2;	// [N] [V] +0x54 = Terra_CalcPrice(1) / 2; the loader: +0x58 = +0x54 / 2
 		last = -1; timer = 1.6f * waitScale();
 		if(pi() > 1){	// [V] the loader: the button captions "100 X %d"
 			const int amt[3] = {100, 500, 1000}; const char *nm[3] = {"100", "500", "1000"};
@@ -84,7 +86,7 @@ struct VendueTask : Task {
 		else { state = 0; say(4309, false); npcPlay(npc, 0); }	// [V] str 4309 "<str#4309>！", action 0, no voice
 		rm8UiOnClickName(ui, [this](const std::string &nm){ click(nm); });
 		rm8UiShow(ui, true);
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s auction of plot %d: base %ld start %ld", bankrupt ? "bankruptcy" : "public", t, base, price);
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s auction of plot %d: base %d start %d", bankrupt ? "bankruptcy" : "public", t, base, price);
 	}
 	~VendueTask() override
 	{
@@ -155,7 +157,7 @@ struct VendueTask : Task {
 	void showOptions()
 	{
 		bool hum = cur >= 0 && rm8TurnHuman(cur);
-		long cash = cur >= 0 ? rm8GameCash(cur) : 0;
+		int32_t cash = cur >= 0 ? rm8GameCash(cur) : 0;	// [N] int32_t
 		rm8UiSetEnabledN(ui, "pass", hum);
 		rm8UiSetEnabledN(ui, "100", hum && cash >= pi() * 100 + price);
 		rm8UiSetEnabledN(ui, "500", hum && cash >= pi() * 500 + price);
@@ -194,22 +196,22 @@ struct VendueTask : Task {
 		if(checkWinner()){ timer = 0.2f * waitScale(); state = 7; }
 		else if(findNextBidder()) state = 5;	// [V] no timer reload here
 		else if(nextBidder() < 0){ timer = 0.2f * waitScale(); state = 7; }
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: auction: seat %d passes (price %ld, last bidder %d) -> state %d, next %d", who, price, last, state, cur);
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: auction: seat %d passes (price %d, last bidder %d) -> state %d, next %d", who, price, last, state, cur);
 	}
-	void onBid(long inc)	// [V] Vendue_OnBidAccepted @0x4e2230
+	void onBid(int32_t inc)	// [N] [V] Vendue_OnBidAccepted @0x4e2230
 	{
 		price += inc; last = cur;	// [V] Vendue_UpdatePrice: +0x58 += inc, +0x60 = +0x64
 		priceText();
 		rm8SndPlay(0x6f);
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: auction: seat %d bids +%ld -> %ld", cur, inc, price);
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: auction: seat %d bids +%d -> %d", cur, inc, price);
 		if(findNextBidder()){ timer = 0.2f * waitScale(); state = 5; }
 		else nextBidder();
 	}
 	void aiBid()	// [V] Vendue_AIBid @0x4e22c0
 	{
 		float ratio = (float)price / (float)base;
-		long cash = rm8GameCash(cur), P = pi();
-		auto bid = [&](long inc){ if(ratio <= (float)(rnd() % 10 + 1)) onBid(P * inc); else onNoBidders(); };
+		int32_t cash = rm8GameCash(cur), P = pi();	// [N] int32_t
+		auto bid = [&](int32_t inc){ if(ratio <= (float)(rnd() % 10 + 1)) onBid(P * inc); else onNoBidders(); };
 		if(cash < P * 100 + price) onNoBidders();
 		else if(cash < P * 500 + price){
 			if(rnd() % 100 < 0x5b) bid(100); else onNoBidders();
@@ -225,9 +227,9 @@ struct VendueTask : Task {
 	void click(const std::string &name) override	// [V] Wonder_OnNumInput @0x4e1ae0 / Wonder_OnUIEvent @0x4e1a90: only in state 4
 	{
 		if(state != 4 || cur < 0 || !rm8TurnHuman(cur)) return;
-		long cash = rm8GameCash(cur);
+		int32_t cash = rm8GameCash(cur);	// [N] int32_t
 		if(name == "pass"){ onNoBidders(); return; }
-		long inc = name == "100" ? 100 : name == "500" ? 500 : name == "1000" ? 1000 : 0;
+		int32_t inc = name == "100" ? 100 : name == "500" ? 500 : name == "1000" ? 1000 : 0;	// [N] int32_t
 		if(!inc || cash < pi() * inc + price) return;	// [V] a disabled button
 		onBid(pi() * inc);
 	}
@@ -271,7 +273,7 @@ struct VendueTask : Task {
 				rm8TurnEnqueueAt(curRole, 0, 0x2E, last + 1, 0);
 				rm8TurnEnqueueAt(last, 1, 0x2E, curRole + 1, 1);
 			}
-			if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: auction: plot %d sold to seat %d for %ld", terra, last, price);
+			if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: auction: plot %d sold to seat %d for %d", terra, last, price);
 			state = 6;
 			break; }
 		case 6: say(4307); npcPlay(npc, 5); state = 10; break;	// [V] str 4307 "<str#4307>！" + voice

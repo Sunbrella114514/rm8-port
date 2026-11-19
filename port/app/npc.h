@@ -63,6 +63,8 @@ bool rm8NpcTransferSkip();	// [V] RoleAnimation_SkipToEnd @0x4B1320 (vtable 0x5E
 // ---- rules (game.cpp)
 int rm8NpcBully(int ownerSeat);				// [V] Role_PayToll @0x487c80: owner role +0x1C0 = the seat that played the road bully card (-1 none)
 int rm8NpcTimeBomb(int seat);				// [V] +0x288 time bomb counter (Role.TimeBomb, 0 none)
+int rm8NpcBombOwner(int seat);				// [R] rules_plus B3: who laid the time bomb now on the role (-1 unknown)
+void rm8NpcSetBombOwner(int seat, int owner);
 
 // ---- possessed role figures (roles.cpp): while a role is possessed by 1..9 its models are the NPC's ([V] Role_SetPossession @0x48b6e0)
 bool rm8NpcRoleShape(int seat, float scale[3]);		// [V] CPlayerTag__GetStatusShape @0x490bf0: the NPC's scale instead of roleinfo scale

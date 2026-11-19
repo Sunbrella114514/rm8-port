@@ -47,7 +47,7 @@ struct Obj {
 };
 
 // per seat state kept outside the role ([V] role +0x1DC possession days, +0x1C0 / +0x1E0 road bully, +0x288 time bomb counter)
-struct Seat { int possDays = 0, bullyBy = -1, bullyDays = 0, bomb = 0; bool hidden = false; };	// hidden = role +0x1C8 cleared: the role is not drawn (CPlayerTag__Render @0x485d00 needs CanMoveNormally @0x4932e0)
+struct Seat { int possDays = 0, bullyBy = -1, bullyDays = 0, bomb = 0; bool hidden = false; int bombOwner = -1; };	// bombOwner [R] rules_plus B3: the seat that laid the time bomb on the role (-1 unknown; saved in the HATE chunk)	// hidden = role +0x1C8 cleared: the role is not drawn (CPlayerTag__Render @0x485d00 needs CanMoveNormally @0x4932e0)
 
 extern std::map<int, Def> g_defs;
 extern std::vector<Obj*> g_objs;		// the NPC array: the handle of an object is its index + 1 (the game's py_Npc_* number + 1)

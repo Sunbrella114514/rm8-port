@@ -14,6 +14,7 @@
 #include "stock.h"
 #include "present.h"
 #include "boardfx.h"
+#include "rules_plus.h"
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -23,7 +24,7 @@ namespace ev {
 
 namespace {
 
-long statOf(int kind, int seat)
+int32_t statOf(int kind, int seat)	// [N] int32_t
 {
 	switch(kind){
 	case 0: return rm8GameCash(seat);
@@ -78,14 +79,51 @@ int genOne()	// [V] MagicHouse_GenerateOneNumber @0x4cba90
 	return n;
 }
 
+// [R] rules_plus B3: how much an effect hurts (badScore) / helps (goodScore) the role it is cast on, roughly in money; 0 = nothing happens / not a plain effect (the swaps 12 14 16 18 20 22 depend on who
+// is poorest and are not rated). Odd numbers are the bad ones (as in the effect table above), the heavy ones 13..23 only exist from difficulty 3 on.
+int32_t badScore(int v, int s)	// [N] int32_t
+{
+	int32_t PI = rm8GamePI(), cards = rm8CardCount(s), pts = rm8GamePoints(s), stock = rm8StockValue(s);	// [N] int32_t
+	int lands = (int)ownLands(s, false, 1, 5).size();
+	switch(v){
+	case 1: return rm8GameCash(s) >= 1000 ? 5000 : 0;
+	case 3: return (int32_t)(rm8GameDeposit(s) * 0.1f);	// [N] int32_t
+	case 5: return stock > 0 ? stock / 5 : 0;
+	case 7: return lands > 0 ? 8000 * PI : 0;
+	case 9: return std::min(pts, 50) * 100;	// [N] int32_t
+	case 11: return cards > 0 ? 3000 : 0;
+	case 13: return (int32_t)(rm8GameCash(s) * 0.5f);	// [N] int32_t
+	case 15: return (int32_t)(rm8GameDeposit(s) * 0.5f);
+	case 17: return stock / 2;
+	case 19: return (int32_t)(lands / 2 + lands % 2) * 15000 * PI;	// [N] int32_t
+	case 21: return pts * 100;
+	case 23: return cards * 3000;
+	}
+	return 0;
+}
+int32_t goodScore(int v, int s)	// [N] int32_t
+{
+	int32_t PI = rm8GamePI(), stock = rm8StockValue(s);	// [N] int32_t
+	switch(v){
+	case 0: return 5000;
+	case 2: return (int32_t)(rm8GameDeposit(s) * 0.1f);	// [N] int32_t
+	case 4: return stock > 0 ? stock / 5 : 0;
+	case 6: return ownLands(s, true, 0, 4).empty() ? 0 : 10000 * PI;
+	case 8: return 5000;
+	case 10: return rm8CardCount(s) < rm8CardMax() ? 3000 : 0;
+	}
+	return 0;
+}
+
 // [V] MagicHouse_ApplyMagicEffect @0x4cdb10 + MagicHouse_GenerateDescription @0x4d12f0 (str 3905 + effect). The messages go to the chosen role's queue, the two
 // "meeting" hand-offs (0x2e) only when it is not the current role
 std::string applyEffect(int cur, int tgt, int value)
 {
 	auto enq = [&](int cmd, int a, int b){ rm8TurnEnqueue(tgt, cmd, a, b); };
 	const std::string tn = rm8TurnName(tgt);
+	if(rm8RulesOn() && tgt != cur && badScore(value, tgt) > 0) rm8HateNote(tgt, cur, rm8PlusTuning().hateMagic, "bad magic house effect");	// [R] B3
 	std::string desc;
-	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: magic house: effect %d: stock value of seat %d before: %ld", value, tgt, rm8StockValue(tgt));
+	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: magic house: effect %d: stock value of seat %d before: %d", value, tgt, rm8StockValue(tgt));
 	bool meet = true;
 	int other = -1;
 	auto two = [&](int kind, bool byRandom){
@@ -137,7 +175,7 @@ std::string applyEffect(int cur, int tgt, int value)
 		rm8TurnEnqueue(cur, 0x2e, tgt + 1, 0);
 		rm8TurnEnqueue(tgt, 0x2e, cur + 1, 1);
 	}
-	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: magic house: seat %d casts effect %d on seat %d: %s (stock value now %ld)", cur, value, tgt, desc.c_str(), rm8StockValue(tgt));
+	if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: magic house: seat %d casts effect %d on seat %d: %s (stock value now %d)", cur, value, tgt, desc.c_str(), rm8StockValue(tgt));
 	return desc;
 }
 
@@ -259,7 +297,24 @@ bool aiMagic(int seat)
 	do slot[1] = genOne(); while(slot[1] == slot[0]);
 	do slot[2] = genOne(); while(slot[2] == slot[0] || slot[2] == slot[1]);
 	do slot[3] = genOne(); while(slot[3] == slot[0] || slot[3] == slot[1] || slot[3] == slot[2]);
-	std::string d = applyEffect(seat, tgt, slot[rnd() & 3]);
+	int value = slot[rnd() & 3];
+	if(rm8RulesOn()){	// [R] rules_plus B3 (the original draws above are all made: the shared random stream is used as before)
+		const Rm8PlusTuning &pt = rm8PlusTuning();
+		bool done = false;
+		int hl[8], hn = rm8HateList(seat, hl);
+		for(int i = 0; i < hn && !done; i++){	// the hated role gets the worst of the four effects
+			int h = hl[i], best = -1; int32_t bs = 0;	// [N] int32_t
+			if(rm8TurnStatus(h) == 7) continue;
+			for(int k = 0; k < 4; k++){ int32_t sc = badScore(slot[k], h); if(sc > bs){ bs = sc; best = k; } }	// [N] int32_t
+			if(best >= 0 && rm8HateAct(seat, h, "casts the worst magic effect on it")){ tgt = h; value = slot[best]; done = true; rm8Log("rules+: magic house: seat %d (%s) casts effect %d (harm ~%d) on the hated seat %d (%s)", seat, rm8TurnName(seat), value, bs, h, rm8TurnName(h)); }
+		}
+		if(!done && rm8PlusRand() % 100 < pt.magicSelfGoodPct[rm8RulesLevel() - 1]){	// otherwise: sometimes the best good effect for itself instead of a random one for somebody else
+			int best = -1; int32_t bs = 0;	// [N] int32_t
+			for(int k = 0; k < 4; k++){ int32_t sc = goodScore(slot[k], seat); if(sc > bs){ bs = sc; best = k; } }
+			if(best >= 0){ tgt = seat; value = slot[best]; rm8Log("rules+: magic house: seat %d (%s) takes the good effect %d for itself (worth ~%d)", seat, rm8TurnName(seat), value, bs); }
+		}
+	}
+	std::string d = applyEffect(seat, tgt, value);
 	queueTextAt(seat, 0, d);
 	return true;
 }
@@ -270,16 +325,16 @@ void swapMessage(int seat, int a, int b)
 	int o = a - 1;
 	if(a == 0 || o == seat || o < 0 || o >= rm8TurnRoleCount()) return;
 	switch(b){
-	case 0: { long c1 = rm8GameCash(seat), c2 = rm8GameCash(o); rm8GameSetMoney(seat, c2, rm8GameDeposit(seat)); rm8GameSetMoney(o, c1, rm8GameDeposit(o)); break; }
-	case 1: { long d1 = rm8GameDeposit(seat), d2 = rm8GameDeposit(o); rm8GameSetMoney(seat, rm8GameCash(seat), d2); rm8GameSetMoney(o, rm8GameCash(o), d1); break; }
+	case 0: { int32_t c1 = rm8GameCash(seat), c2 = rm8GameCash(o); rm8GameSetMoney(seat, c2, rm8GameDeposit(seat)); rm8GameSetMoney(o, c1, rm8GameDeposit(o)); break; }	// [N] int32_t
+	case 1: { int32_t d1 = rm8GameDeposit(seat), d2 = rm8GameDeposit(o); rm8GameSetMoney(seat, rm8GameCash(seat), d2); rm8GameSetMoney(o, rm8GameCash(o), d1); break; }
 	case 2:
 		for(int t = 0; t < rm8GameTerraCount(); t++){
 			int w = rm8GameTerraOwner(t);
 			if(w == seat) rm8GameSetTerra(t, o, -1, -1); else if(w == o) rm8GameSetTerra(t, seat, -1, -1);
 		}
 		break;
-	case 3: { long p1 = rm8GamePoints(seat), p2 = rm8GamePoints(o); rm8GameAddPoints(seat, p2 - p1); rm8GameAddPoints(o, p1 - p2); break; }
-	case 4: if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: stock swap seat %d (%ld) <-> seat %d (%ld)", seat, rm8StockValue(seat), o, rm8StockValue(o)); rm8StockSwapHoldings(seat, o); if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: ... now %ld / %ld", rm8StockValue(seat), rm8StockValue(o)); break;	// [V] the holdings are exchanged
+	case 3: { int32_t p1 = rm8GamePoints(seat), p2 = rm8GamePoints(o); rm8GameAddPoints(seat, p2 - p1); rm8GameAddPoints(o, p1 - p2); break; }	// [N] int32_t
+	case 4: if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: stock swap seat %d (%d) <-> seat %d (%d)", seat, rm8StockValue(seat), o, rm8StockValue(o)); rm8StockSwapHoldings(seat, o); if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: ... now %d / %d", rm8StockValue(seat), rm8StockValue(o)); break;	// [V] the holdings are exchanged
 	case 5: {
 		std::vector<int> c1, c2;
 		for(int i = 0; i < rm8CardMax(); i++){ if(rm8CardAt(seat, i)) c1.push_back(rm8CardAt(seat, i)); if(rm8CardAt(o, i)) c2.push_back(rm8CardAt(o, i)); }

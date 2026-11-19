@@ -368,6 +368,7 @@ bool rm8SaveBuild(std::vector<unsigned char> &out, int currentOverride, bool zer
 	Rm8SaveW x;
 	for(const ExtReg &e : exts()){
 		Rm8SaveW c; e.w(c);
+		if(c.b.empty()) continue;	// [R] a chunk with nothing to say is left out (the RULE chunk while the house rules are off: such a record is byte-identical to one of a port without them)
 		x.raw(e.tag.c_str(), 4); x.i32((int)c.b.size()); x.raw(c.b.data(), c.b.size());
 	}
 	w.raw(EXT_MAGIC, 4); w.i32(EXT_VERSION); w.i32((int)x.b.size()); w.raw(x.b.data(), x.b.size());
@@ -572,6 +573,7 @@ bool rm8SaveRequest(int slot, bool multi)
 void rm8SaveBoundary(int kind)
 {
 	if(!rm8SaveBoardOn()) return;
+	if(rm8SaveHooks().netBoundary) rm8SaveHooks().netBoundary(kind);	// [N] netplay: hash / snapshot (net.cpp)
 	int n = rm8TurnRoleCount();
 	std::error_code ec;
 	if(kind == 0){
@@ -579,7 +581,8 @@ void rm8SaveBoundary(int kind)
 		// written as record_temp (the original's first call, with the day count 0, writes both at once). [A] the call of the game start (day 0) is skipped: the port
 		// builds the board first and applies the story start values afterwards, so that record would lack them; the first record is written after day 1
 		std::string temp = rm8SaveSlotPath(0, true), slot1 = rm8SaveSlotPath(1, rm8SaveMulti());
-		if(!getenv("RM8_NO_AUTOSAVE") && rm8GameDay() > 0){
+		if(!getenv("RM8_NO_AUTOSAVE") && !rm8SaveHooks().noAutoSave && rm8GameDay() > 0){
+
 			std::vector<unsigned char> d;
 			if(rm8SaveBuild(d, n)){
 				if(fs::exists(temp)) fs::copy_file(temp, slot1, fs::copy_options::overwrite_existing, ec);

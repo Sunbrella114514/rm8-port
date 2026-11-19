@@ -43,11 +43,17 @@ bool rm8CardModal(int seat, int a, int b);
 bool rm8CardsAiStart(int seat);
 // [V] Role_UseCardBeforeRoll @0x4fbab0 (Role_BeforeRollDice, computer): the planned cards (not ported: always false)
 bool rm8CardsAiUsePlanned(int seat);
+bool rm8CardsAiReplan(int seat);	// [R] rules_plus B4: the combo re-plan after a used card (false = nothing planned; true = the first step was queued)
 // role fields of the cards (CPlayerTag +0x1cc turtle days, +0x1d0 stay flag, +0x28c bubble, +0x1d8 status days)
 int rm8CardsTurtle(int seat);
 void rm8CardsSetTurtle(int seat, int days);	// [V] Role_SetTurtleDays @0x48b670
 bool rm8CardsTurtleRoll(int seat);		// [V] Role_StartRollDice @0x484e50: true = the roll is forced to 1 (turtle days - 1)
 bool rm8CardsHasBubble(int seat);
+// [R] rules_plus B2 (hospital exit anti-camping; no-ops while the house rules are off): the post-hospital bubble, the blast stay rule, the per-role state of the RULE chunk
+bool rm8CardsPlusImmune(int seat);
+int rm8CardsPlusBlastDays(int seat, int days);
+void rm8CardsPlusGet(int seat, int out[4]);	// grace, chain, immune, camp
+void rm8CardsPlusSet(int seat, const int in[4]);
 // [V] vf+0x64 (py_Role_HasBdygrd @0x4ff3e0, Role_PayToll, OnHolidayCardUse): true only for 莎拉 (roleinfo 16, class Cls_5e2878 vtable 0x5e2918 @0x498ac0) while her
 // bodyguard (card 46, 7 turns) is there; every other role class returns 0 (Obj_Return0 @0x4f6230)
 bool rm8CardsHasBodyguard(int seat);
@@ -80,9 +86,15 @@ bool rm8CardsOnTap(float x, float y);
 bool rm8CardsCancelPick();				// the prompt's cancel button: close it, result 0
 bool rm8CardsPicking();					// a card target selection is open
 void rm8CardsSetSellMode(bool on);			// [V] DAT_00640958: clicking a card sells it (half the price in points) - for the card shop
+// [N] netplay (net.cpp, docs/netplay.md): the local card inputs that become commands; the hook returns true when it took the input
+enum { RM8_CARDNET_PICK = 1, RM8_CARDNET_CLOSE_THROW, RM8_CARDNET_OPEN_THROW, RM8_CARDNET_CANCEL_PICK, RM8_CARDNET_CANCEL_DLG };
+void rm8CardsSetNetHook(bool (*fn)(int action, int arg));
+void rm8CardsNetApply(int action, int arg);		// a card command at its frame (every device)
+int rm8CardsSwapSeat();					// the seat of the hand-full swap (getcard.ui), -1 none
+void rm8CardsSetNetRange(bool on);			// the card range of a netplay game: the original 4:3 screen on every device, no libm trigonometry
+
 
 // ---- Python (python.cpp)
 // [V] Card_CallPythonCallbackWithParams @0x4ae650 (Execute(param, sa, sb)) / Card_CallPythonCallback @0x4ae580 (Competence());
 // false if the module or function is missing or raised
-bool rm8PyCardCall(const char *module, bool execute, long param, long sa, long sb, long &result);
-extern int rm8CardsDifficulty;				// init.txt difficuty (Role.GameDffty); the game's default file has 3
+bool rm8PyCardCall(const char *module, bool execute, int32_t param, int32_t sa, int32_t sb, int32_t &result);	// [N] int32_t

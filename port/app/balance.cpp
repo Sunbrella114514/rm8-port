@@ -352,25 +352,25 @@ struct BalanceTask : ev::Task {
 		setCol(10, ""); setCol(11, "");
 		step = next; setTimer(3.0f);
 	}
-	void raise(const std::vector<long> &v, long mx)	// [V] u_Sprite3D_SetAnimationDuration(value * 60 / max)
+	void raise(const std::vector<int32_t> &v, int32_t mx)	// [N] [V] u_Sprite3D_SetAnimationDuration(value * 60 / max)
 	{
 		for(size_t i = 0; i < dolls.size(); i++) dolls[i]->setTarget(mx > 0 ? (float)((double)v[i] * 60.0 / (double)mx) : 0.0f);
 	}
-	static std::string n9(long v){ char b[32]; snprintf(b, sizeof b, "%9d", (int)v); return b; }
+	static std::string n9(int32_t v){ char b[32]; snprintf(b, sizeof b, "%9d", (int)v); return b; }	// [N] int32_t
 
 	// [V] Balance_ShowDepositInfo @0x4afa40: "deposit:" / "interest:" (5501 / 5502); per doll the deposit and the interest = deposit / 10 (the money wonder: its owner / 5, the
 	// others / 20: Wonder_CheckConstruction(0)), credited at once to the deposit (Role_AddMoney(interest, 1, 0)); the dolls rise by deposit * 60 / max
 	void showDeposit()
 	{
 		setCol(10, ev::plain(rm8Str(5501))); setCol(11, ev::plain(rm8Str(5502)));
-		std::vector<long> dep(dolls.size(), 0); long mx = 0;
+		std::vector<int32_t> dep(dolls.size(), 0); int32_t mx = 0;	// [N] int32_t
 		for(size_t i = 0; i < dolls.size(); i++){
 			int s = dolls[i]->seat;
 			dep[i] = rm8GameDeposit(s);
-			long interest = dep[i] / rm8EventInterestDivisor(s);
+			int32_t interest = dep[i] / rm8EventInterestDivisor(s);	// [N] int32_t
 			rm8GameAddMoney(s, interest, true);
 			setCol((int)i * 2 + 1, n9(dep[i])); setCol((int)i * 2 + 2, n9(interest));
-			rm8Log("balance: seat %d deposit %ld interest %ld", s, dep[i], interest);
+			rm8Log("balance: seat %d deposit %d interest %d", s, dep[i], interest);
 			mx = std::max(mx, dep[i]);
 		}
 		raise(dep, mx);
@@ -381,12 +381,12 @@ struct BalanceTask : ev::Task {
 	void showLoss()
 	{
 		setCol(10, ev::plain(rm8Str(5503))); setCol(11, ev::plain(rm8Str(5504)));
-		std::vector<long> sc(dolls.size(), 0); long mx = 0;
+		std::vector<int32_t> sc(dolls.size(), 0); int32_t mx = 0;	// [N] int32_t
 		for(size_t i = 0; i < dolls.size(); i++){
 			int s = dolls[i]->seat;
-			long loss = rm8GameRentPaid(s); int days = rm8GameBadDays(s);
+			int32_t loss = rm8GameRentPaid(s); int days = rm8GameBadDays(s);	// [N] int32_t
 			setCol((int)i * 2 + 1, n9(loss)); setCol((int)i * 2 + 2, n9(days));
-			sc[i] = std::max(0L, (long)(int)((long)days * 2500 * rm8GamePI() + loss));
+			sc[i] = std::max(0, rm8Add32(rm8Mul32(rm8Mul32(days, 2500), rm8GamePI()), loss));	// [N] the 32-bit wrap of the original's imul / add, explicit
 			if(mx < sc[i]){ mx = sc[i]; tragic = (int)i; }
 		}
 		raise(sc, mx);
@@ -396,11 +396,11 @@ struct BalanceTask : ev::Task {
 	void showAssets()
 	{
 		setCol(10, ev::plain(rm8Str(5505))); setCol(11, "");
-		std::vector<long> as(dolls.size(), 0); long mx = 0;
+		std::vector<int32_t> as(dolls.size(), 0); int32_t mx = 0;	// [N] int32_t
 		for(size_t i = 0; i < dolls.size(); i++){
 			int s = dolls[i]->seat;
-			long v = rm8GameCash(s) + rm8GameDeposit(s) - rm8EventLoan(s) + rm8StockValue(s);
-			for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == s) v += rm8GameTerraPrice(t);
+			int32_t v = rm8Add32(rm8Sub32(rm8Add32(rm8GameCash(s), rm8GameDeposit(s)), rm8EventLoan(s)), rm8StockValue(s));	// [N] int32_t; the net worth wraps like the original's 32-bit adds
+			for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == s) v = rm8Add32(v, rm8GameTerraPrice(t));
 			as[i] = v;
 			setCol((int)i * 2 + 1, n9(v)); setCol((int)i * 2 + 2, "");
 			if(mx < v){ mx = v; champion = (int)i; }

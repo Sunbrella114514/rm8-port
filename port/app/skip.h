@@ -18,6 +18,13 @@ bool rm8SkipTap(rw::Camera *cam, float x, float y, bool onUi);
 // wait scale 1 - min((speed - 1) / 10, 1) becomes 0 (every Anim_ApplyDifficultyScale wait is 0) and the walking dt factor (speed - 1) / 4 + 1 about 14.
 void rm8SkipToggleFast();
 
+// [N] netplay (net.cpp, docs/netplay.md): the two calls above become commands of the local player in a netplay game (the hooks return true when they took
+// the input); the commands run the "Now" versions on every device at the command's frame. Without netplay nothing changes.
+void rm8SkipSetNetHooks(bool (*skip)(), bool (*fast)());
+bool rm8SkipRequestNow();
+void rm8SkipToggleFastNow();
+
+
 // per frame (rm8RolesUpdate): test hook only. RM8_SKIP_TEST="<t>,<t>,..." taps (rm8SkipRequest) at those game seconds, "auto[:period]" taps every
 // `period` s (default 0.4), "fast@<t>" toggles the fast mode; RM8_SKIP_TRACE=1 logs the skips and every role wait (state 5) with its game time.
 void rm8SkipUpdate(float dt);

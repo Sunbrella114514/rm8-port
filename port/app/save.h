@@ -49,12 +49,12 @@ struct Rm8SaveR {
 };
 
 // days since 1970-01-01 of a calendar date (the loan record keeps its date as year / month / day / weekday / day count)
-inline long rm8SaveCivilDays(int y, int m, int d)
+inline int32_t rm8SaveCivilDays(int y, int m, int d)	// [N] int32_t
 {
 	y -= m <= 2;
-	long era = (y >= 0 ? y : y - 399) / 400;
+	int32_t era = (y >= 0 ? y : y - 399) / 400;	// [N] int32_t
 	unsigned yoe = (unsigned)(y - era * 400), doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-	return era * 146097 + (long)doe - 719468;
+	return era * 146097 + (int32_t)doe - 719468;	// [N] int32_t
 }
 
 // ---------------------------------------------------------------- the role record (docs/save_format.md section 6, Role_Save @0x491fb0)
@@ -146,7 +146,11 @@ struct Rm8SaveHooks {
 	void (*instituteSet)(int terra, const int in[2]) = nullptr;
 	void (*wonderTable)(int idx, int out[9]) = nullptr;	// optional: the 3 x 0x24 byte wonder table (default from the samples)
 	void (*wonderTableSet)(int idx, const int in[9]) = nullptr;
+	// [N] netplay (net.cpp): every rm8SaveBoundary call (0 day wrap, 1 human dice wait, 2 turn start, 3 roll) first goes here: the state hash / the resync snapshot
+	void (*netBoundary)(int kind) = nullptr;
+	bool noAutoSave = false;	// [N] a netplay client: the host's game is not written into this device's record_temp / slot 1
 };
+
 Rm8SaveHooks &rm8SaveHooks();
 
 // ---------------------------------------------------------------- extension chunks

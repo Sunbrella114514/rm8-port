@@ -37,6 +37,7 @@
 #include "story.h"
 #include "audio.h"
 #include "save.h"
+#include "rules_plus.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -832,14 +833,20 @@ void startEventDie(Role &r)
 // [V] CPlayerTag__BeginMoveSteps @0x484f90
 void beginMoveSteps(Role &r, int n){ if(n <= 0) return; rm8StoryNoteSteps(r.seat, n); r.steps = n; r.state = 1; playAnim(r, 0, false); startWalkSound(r); followerPush(r); }	// [V] Cls_5e27d8_OnPosChange @0x47de00: vf26 -> push the target node
 
-// [V] Role_BeforeRollDice @0x484c80 (no cards/missions yet): human waits in state 6, computer throws (DiceNum = all)
+// [V] Role_BeforeRollDice @0x484c80: human waits in state 6, the computer asks AI_AskDiceNum @0x4fc120 (the script's DiceNum, parameter 0) and throws
 void beforeRollDice(Role &r)
 {
 	if(rm8StoryMissionCheck(r.seat)){ enqueue(r, 100); r.state = 8; return; }	// [V] Role_BeforeRollDice @0x484c80: a puzzle piece condition holds -> 0x58 queued, then 100 again
 	if(rm8GameShape(r.seat) == 6){ rm8NpcSleepwalk(r.seat); r.state = 8; return; }	// [V] Role_BeforeRollDice @0x484c80: possessed by 糊塗神 -> Role_ShowSleepwalkAndRoll
 	if(r.human){ r.state = 6; rm8SaveBoundary(1); return; }	// [A] save.cpp: pending manual saves are written while the human waits for the dice
 	if(rm8CardsAiUsePlanned(r.seat)){ r.state = 8; return; }	// [V] Role_UseCardBeforeRoll @0x4fbab0
-	diceSetCount(r, r.diceMax);	// [A] the computer always throws all its dice (the AI.DiceNum answer is not called yet); Dice_SetCount(n) resets the slot flags
+	if(rm8RulesOn() && rm8CardsAiReplan(r.seat)){ r.state = 8; return; }	// [R] rules_plus B4: a card combo (re-plan after a used card)
+	// [V] @0x484c80: n = AI_AskDiceNum(); only 0 < n <= the vehicle's dice (+0x22C) calls Dice_SetCount(n); otherwise the count stays what it was (Role_SetTrfTool / the start set it to the maximum;
+	// the script's DiceNum asks for randint(1, Role.TrfTool + 1) dice, so the one above the maximum is thrown away and the previous count is thrown again)
+	int32_t want = 0; rm8PyCallAI(rm8TurnAiScript(r.seat), "DiceNum", 0, want);	// [N] int32_t
+	static const bool logDiceNum = getenv("RM8_DEBUG_DICE") != nullptr;
+	if(logDiceNum) rm8Log("dice: seat %d DiceNum -> %d (max %d, count %d)", r.seat, want, r.diceMax, r.diceCount);
+	if(want > 0 && want <= r.diceMax) diceSetCount(r, (int)want);
 	startRollDice(r, 0);
 }
 
@@ -1080,7 +1087,10 @@ void rm8RolesSpawn(Rm8Scene &s, const std::vector<int> &ids, unsigned seed, int 
 		for(int j = 0; j < 4; j++) ok &= loadModel(s, r.m[j], r.def->art[j], r.def->id, r.color, j < 2);
 		if(!ok){ for(Model &m : r.m) if(m.clump){ s.world->removeClump(m.clump); m.clump->destroy(); } continue; }
 		// [V] Path_SetPoints @0x47b670: from = start node, to = next node, face it without spinning
+		// [V] Game_SelectRandomTerritory @0x496180 -> u_Mgr_SelectRandomItems(count, ...): every role gets a DIFFERENT start; the port drew with
+		// replacement, so two roles could start on the same node. Draw again while the node is taken (bounded; falls back when the map has fewer starts than roles)
 		int st = starts[rnd() % starts.size()];
+		for(int tries = 0; tries < 64; tries++){ bool taken = false; for(const Role &o : g_role) taken |= o.from == st; if(!taken) break; st = starts[rnd() % starts.size()]; }
 		r.from = st; r.to = g_graph.links[st][rnd() % 2]; r.pos = nodePos(st);
 		r.cur = 0; playAnim(r, 2, false);
 		calcAngle(r, nodePos(r.from), nodePos(r.to), false);
@@ -1114,6 +1124,10 @@ void rm8RolesSpawn(Rm8Scene &s, const std::vector<int> &ids, unsigned seed, int 
 	rm8Log("roles: %d characters on %d road nodes", (int)g_role.size(), (int)g_nodes.size());
 }
 
+static float g_camYawFixed = -1.0f;	// [N] netplay: the rules' camera yaw, exact (rm8RolesFixCameraYaw)
+// [N] netplay (net.cpp): the yaw the rules use is exactly this value instead of atan2f of the camera (C libraries differ in the last bit and calcAngle truncates
+// (int)CAM_YAW, which would turn a doll on one device only); < 0 = from the camera again (single player)
+void rm8RolesFixCameraYaw(float yaw){ g_camYawFixed = yaw; }
 void rm8RolesSetCamera(Camera *cam)
 {
 	g_cam = cam;
@@ -1124,7 +1138,9 @@ void rm8RolesSetCamera(Camera *cam)
 	if(fabsf(at.x) + fabsf(at.z) < 1e-4f) return;
 	float y = atan2f(-at.z, -at.x) * 180.0f / 3.14159265f;
 	if(y < 0) y += 360.0f;
+	if(g_camYawFixed >= 0) y = g_camYawFixed;
 	float dy = fabsf(y - CAM_YAW); if(dy > 180.0f) dy = 360.0f - dy;
+
 	CAM_YAW = y;
 	// [A] the game camera never turns on the board; when the port's camera does, re-aim standing/walking dolls at once
 	if(dy > 1.0f) for(Role &r : g_role) if(!r.spinning && r.from >= 0 && r.to >= 0) calcAngle(r, nodePos(r.from), nodePos(r.to), false);
@@ -1386,7 +1402,28 @@ bool rm8AutoKey(int seat)
 	if(c.seat == seat && c.state == 6 && autoEnable(c)){ rm8Log("autoplay: seat %d is played by the computer (key)", seat); return true; }
 	return false;
 }
+// [N] netplay (net.cpp RM8C_AUTOSET): the host hands the seat of a player who lost the connection to the computer (on) and gives it back when the player is
+// home again (off): Role_EnableAutoPlay / Role_DisableAutoPlay without the key's conditions (any state; the disable still waits while the role is in an event)
+bool rm8AutoSet(int seat, bool on)
+{
+	if(!okSeat(seat) || g_placedOnly) return false;
+	Role &r = g_role[seat];
+	if(on ? autoEnable(r) : autoDisable(r)){ rm8Log("autoplay: seat %d is played by %s (netplay)", seat, on ? "the computer" : "the human again"); return true; }
+	return false;
+}
+// [N] netplay resume (net.cpp RM8C_ADOPT, docs/netplay.md 9.1): a computer seat the host offers to a joiner becomes a player seat that the computer plays
+// (+0x1B0 1 -> 2, like a human seat under auto play) until a player takes it (rm8AutoSet off)
+bool rm8AutoAdopt(int seat)
+{
+	if(!okSeat(seat) || g_placedOnly) return false;
+	Role &r = g_role[seat];
+	if(r.human || r.autoPlay || r.status == 7) return false;
+	r.autoPlay = true;
+	rm8Log("autoplay: computer seat %d becomes a player seat played by the computer (netplay)", seat);
+	return true;
+}
 // [V] Game_SelectNextPlayer @0x4a6d60, run first for every key of the scene (vf5 @0x4a1e80): while the current role walks (state 1), the first other seat after it that is
+
 // played by the computer is given back, and the key is consumed
 bool rm8AutoRelease()
 {

@@ -9,6 +9,7 @@
 #include "news.h"
 #include "story.h"
 #include "collect.h"
+#include "rules_plus.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -88,6 +89,8 @@ bool newsEvent(int seat, int a, int subject)
 }
 
 // ---- blast: [V] CPlayerTag__OnHolidayCardUse @0x48de10 (mine, time bomb, missiles share it)
+int g_mineOwner[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};	// [R] rules_plus B3: the seat that laid the mine a role just stepped on (message 0x60 follows at once)
+int g_bombPending[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};	// the owner of the time bomb NPC a role just picked up (message 0x3a follows at once)
 std::vector<int> neighbourhood(int node, int radius)	// [V] Terra_BuildNeighborList @0x49fd70
 {
 	std::vector<int> set{node}; size_t lo = 0;
@@ -110,7 +113,8 @@ int filterBombCards(int seat)
 }
 // type (the 5th argument of CPlayerTag__OnHolidayCardUse, +0x28 of the task): 0 = Building_SuccessBuild, the buildings of the plots in the blast area go but the owners stay (missile, and [V] the mine @0x481df0
 // case 0x60 / the time bomb @0x48e400, which pass 0 too: radius 0 = the plot of the node), 1 = Building_FinishWithoutSuccess, the owners go as well (nuke); both when the 2.0 s task ends. -1 = nothing is destroyed (unused)
-void blast(int actor, int node, int art, int snd, int radius, int baseDays, int ignoreBubble = -1, int type = -1)
+// [R] rules_plus B3: aggressor = who gets the blame of the victims' hate (-2 = the actor; mines / time bombs pass the seat that laid them, -1 unknown), hateKind 0 missile 1 nuke 2 mine 3 time bomb (-1 none)
+void blast(int actor, int node, int art, int snd, int radius, int baseDays, int ignoreBubble = -1, int type = -1, int aggressor = -2, int hateKind = -1)
 {
 	std::vector<int> nodes = neighbourhood(node, radius);
 	std::vector<int> v;
@@ -126,13 +130,33 @@ void blast(int actor, int node, int art, int snd, int radius, int baseDays, int 
 		}
 		if(rm8CardsHasBodyguard(s)) continue;	// [V] vf+0x64 (the bodyguard of 莎拉) protects too
 		if(rm8CardsHasBubble(s) && s != ignoreBubble) continue;	// the bubble protects (and bursts, 0x62)
+		if(rm8CardsPlusImmune(s)){ rm8Log("rules+: seat %d (%s) ignores the blast (post-hospital bubble)", s, rm8TurnName(s)); continue; }	// [R] rules_plus B2: the bubble after a floor stay
 		if(s == actor) v.insert(v.begin(), s); else v.push_back(s);	// [V] the actor takes slot 0
+	}
+	if(rm8RulesOn() && hateKind >= 0){	// [R] rules_plus B3: the roles it hurts hate the one who did it; the owners of the plots whose buildings go hate it too
+		int who = aggressor == -2 ? actor : aggressor;
+		const Rm8PlusTuning &pt = rm8PlusTuning();
+		static const char *kn[4] = {"missile", "nuke", "mine", "time bomb"};
+		if(who >= 0) for(int s : v) rm8HateNote(s, who, pt.hateBlast[hateKind], kn[hateKind]);
+		if(who >= 0 && type >= 0 && radius > 0){
+			std::vector<int> seen; std::vector<float> cnt;
+			for(int n : nodes){
+				int t = rm8GameNodeTerra(n), o = t >= 0 ? rm8GameTerraOwner(t) : -1;
+				if(o < 0 || o == who || rm8GameTerraLevel(t) <= 0) continue;
+				bool dup = false; for(int u : seen) dup |= u == t;
+				if(dup) continue;
+				seen.push_back(t); bool f = false;
+				for(size_t k = 0; k < cnt.size(); k += 2) if((int)cnt[k] == o){ cnt[k + 1] += pt.hatePlotBlast; f = true; }
+				if(!f){ cnt.push_back((float)o); cnt.push_back(pt.hatePlotBlast); }
+			}
+			for(size_t k = 0; k < cnt.size(); k += 2) rm8HateNote((int)cnt[k], who, std::min(pt.hatePlotBlastMax, cnt[k + 1]), "buildings blasted");
+		}
 	}
 	if(v.empty()) rm8TurnEnqueueAt(actor, 0, 0x1e, 0, 0);
 	else{
 		bool handoff = false;
 		for(int k = (int)v.size() - 1; k >= 0; k--){
-			int days = filterBombCards(v[k]) + baseDays;
+			int days = rm8CardsPlusBlastDays(v[k], filterBombCards(v[k]) + baseDays);	// [R] rules_plus B2: halved inside the window after the hospital (identity while the rules are off)
 			if(k > 0){ rm8TurnEnqueue(v[k], 0x18, days, 0); rm8TurnEnqueue(v[k], 0x2e, v[k - 1] + 1, 0); handoff = true; }
 			else if(v[0] == actor){ rm8TurnClearQueue(actor); rm8TurnEnqueue(actor, 0x18, days, 0); }
 			else{ rm8TurnEnqueue(v[0], 0x18, days, 0); rm8TurnEnqueue(v[0], 0x2e, actor + 1, 0); handoff = true; }
@@ -286,8 +310,8 @@ void collectDone(void *ctx, int amount)
 			if(o->id == 1) rm8GameSubMoney(s, amount, false); else rm8GameAddMoney(s, amount, false);
 			n++;
 		}
-		if(o->id == 1){ rm8GameAddMoney(me, (long)amount * n, false); rm8PresentMoney(me, (long)amount * n, true); }
-		else{ rm8GameSubMoney(me, (long)amount * n, false); rm8PresentMoney(me, (long)amount * n, false); }	// [V] Role_SubMoney(.., 0, 1) @0x49c120: with the emote
+		if(o->id == 1){ rm8GameAddMoney(me, (int32_t)amount * n, false); rm8PresentMoney(me, (int32_t)amount * n, true); }	// [N] int32_t
+		else{ rm8GameSubMoney(me, (int32_t)amount * n, false); rm8PresentMoney(me, (int32_t)amount * n, false); }	// [V] Role_SubMoney(.., 0, 1) @0x49c120: with the emote
 		if(getenv("RM8_DEBUG_NPC")) rm8Log("npc: %s %d x %d (seat %d)", o->id == 1 ? "財神 collects" : "窮神 pays", amount, n, me);
 	}
 	o->collectPending = false;
@@ -338,8 +362,9 @@ int boardClick(int seat, Obj &o)
 		rm8TurnEnqueueAt(seat, 1, 0x5A, 0x34, 0);
 		return 2;
 	case 13:	// [V] Cls_5e2f78__OnRoleClick @0x49cf50: the mine goes off (0x60) unless a bubble protects
+		g_mineOwner[seat >= 0 && seat < 16 ? seat : 0] = o.owner;	// [R] who laid it (blame of the hate, message 0x60)
 		finalize(o);
-		if(!rm8CardsHasBubble(seat)){ rm8TurnClearQueue(seat); rm8TurnEnqueue(seat, 0x60, 0, 0); }
+		if(!rm8CardsHasBubble(seat) && !rm8CardsPlusImmune(seat)){ rm8TurnClearQueue(seat); rm8TurnEnqueue(seat, 0x60, 0, 0); }	// [R] the post-hospital bubble protects like the card's
 		else{
 			rm8TurnEnqueueAt(seat, 0, 0x2c, 0x1775, 0x43);
 			rm8TurnEnqueueAt(seat, 1, 0x3f, 0, 0);
@@ -347,6 +372,7 @@ int boardClick(int seat, Obj &o)
 		}
 		return 2;
 	case 14:	// [V] Cls_5e2ee0__OnRoleClick @0x49d000: sample 0x11 + 60 frames, then the time bomb (0x3A, 36)
+		g_bombPending[seat >= 0 && seat < 16 ? seat : 0] = o.owner;	// [R] who laid it (message 0x3a)
 		finalize(o);
 		rm8TurnEnqueueAt(seat, 0, 0x53, 0x11, 0x3c);
 		rm8TurnEnqueueAt(seat, 1, 0x3a, 0x24, 0);
@@ -558,8 +584,8 @@ static bool policeAction(int seat)
 		if(rm8GameShape(tgt) == 8) rm8TurnEnqueue(seat, 0x3c, 8, tgt + 1);	// the thief caught by the police: str426
 		else rm8TurnEnqueue(seat, 0x3c, rnd() % 8, tgt + 1);
 	}else if(shape == 8){
-		long half = rm8GamePoints(tgt) / 2;
-		rm8GameAddPoints(seat, std::min(half, 9999L - std::min(9999L, rm8GamePoints(seat))));	// Role_AddTicket(half, 0), tickets <= 9999
+		int32_t half = rm8GamePoints(tgt) / 2;	// [N] int32_t
+		rm8GameAddPoints(seat, std::min(half, 9999 - std::min(9999, rm8GamePoints(seat))));	// Role_AddTicket(half, 0), tickets <= 9999
 		rm8TurnEnqueue(seat, 0x3c, 9, tgt + 1);
 		rm8TurnEnqueue(seat, 0x47, 0, 0);
 	}else{
@@ -581,14 +607,14 @@ int rm8NpcPass(int seat, int node)
 		if(--s.bomb < 1){	// [V] the counter ran out: CPlayerTag__OnUseTargetCard @0x48e400 (blast radius 0, base 7 days, sample 0x45)
 			s.bomb = 0;
 			rm8TurnClearQueue(seat);
-			blast(seat, rm8TurnNode(seat), 0x1775, 0x45, 0, 7, seat, 0);
+			blast(seat, rm8TurnNode(seat), 0x1775, 0x45, 0, 7, seat, 0, S(seat).bombOwner, 3);	// [R] the blame goes to who laid the bomb
 			return 1;
 		}
 		int tgt = pickAtNode(seat);	// [V] GetRandomBankruptRole(2, 0): the bomb jumps to / is swapped with another role on this node
 		if(tgt >= 0){
 			Seat &t = S(tgt);
-			if(t.bomb > 0) std::swap(t.bomb, s.bomb);
-			else{ t.bomb = s.bomb; s.bomb = 0; }
+			if(t.bomb > 0){ std::swap(t.bomb, s.bomb); std::swap(t.bombOwner, s.bombOwner); }
+			else{ t.bomb = s.bomb; s.bomb = 0; t.bombOwner = s.bombOwner; }
 		}
 	}
 	Obj *o = at(node);
@@ -606,7 +632,7 @@ bool rm8NpcOnStop(int seat)
 	Seat &s = S(seat);
 	if(s.bomb > 0 && --s.bomb < 1){	// [V] OnStopAtTerra: the counter runs out on the last node too
 		s.bomb = 0;
-		blast(seat, rm8TurnNode(seat), 0x1775, 0x45, 0, 7, seat, 0);
+		blast(seat, rm8TurnNode(seat), 0x1775, 0x45, 0, 7, seat, 0, s.bombOwner, 3);
 		return true;
 	}
 	if(policeAction(seat)) rm8TurnEnqueue(seat, 0x1e, 0, 0);
@@ -627,7 +653,7 @@ bool rm8NpcMessage(int seat, int cmd, int a, int b)
 	case 0x42: rm8TurnPlayAnim(seat, a, b != 0); return true;	// [V] vf5(a, b, 0)
 	case 0x32: if(!dollStart(seat)) rm8Log("npc: the robot doll could not start"); return true;	// [V] CPlayerTag__OnQandaEvent @0x48da00
 	case 0x3a: {	// [V] CPlayerTag__InitializeTarget(a, 1) @0x48e2d0: the time bomb (counter a), speak 0x3D
-		if(a > 0){ S(seat).bomb = a; rm8RoleSayAt(seat, 0, 0x3d); }
+		if(a > 0){ S(seat).bomb = a; S(seat).bombOwner = g_bombPending[seat >= 0 && seat < 16 ? seat : 0]; g_bombPending[seat >= 0 && seat < 16 ? seat : 0] = -1; rm8RoleSayAt(seat, 0, 0x3d); }
 		return true; }
 	case 0x51: S(seat).bomb = 0; return true;	// [V] CPlayerTag__CleanupTarget @0x48e440 (Role.TimeBombDis)
 	case 0x3c: newsEvent(seat, a, b - 1); return true;	// [V] CPlayerTag__OnLotteryEvent @0x48e7e0 -> News_OnUpdate(a, seat b - 1)
@@ -637,7 +663,7 @@ bool rm8NpcMessage(int seat, int cmd, int a, int b)
 		}
 		return true; }
 	case 0x60: {	// [V] message 0x60 @0x481df0: CPlayerTag__OnHolidayCardUse(from, 0x1775, 0x43, 0, 0, 3) then speak 0x3B (the mine)
-		blast(seat, rm8TurnNode(seat), 0x1775, 0x43, 0, 3, -1, 0);
+		{ int who = g_mineOwner[seat]; g_mineOwner[seat] = -1; blast(seat, rm8TurnNode(seat), 0x1775, 0x43, 0, 3, -1, 0, who, 2); }	// [R] the blame goes to who laid the mine
 		rm8RoleSayAt(seat, 0, 0x3b);
 		return true; }
 	case 0x59: {	// [V] CPlayerTag__OnWonderConstruction @0x492930 (Role.Seal): a = NPC index; b = 0 the seal effect, b = 1 the NPC leaves
@@ -730,5 +756,5 @@ void rm8NpcClearPossessed(int seat)
 // the missile / nuke cards (cards.cpp, messages 0x36 / 0x37): CPlayerTag__OnHolidayCardUse @0x48de10 with the card's article, sample, radius, hospital days and kind
 void rm8NpcBlast(int actor, int node, int art, int snd, int radius, int baseDays, int type)
 {
-	blast(actor, node, art, snd, radius, baseDays, -1, type);
+	blast(actor, node, art, snd, radius, baseDays, -1, type, -2, radius > 0 ? (type > 0 ? 1 : 0) : 2);
 }

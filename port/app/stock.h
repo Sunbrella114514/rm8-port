@@ -20,10 +20,10 @@ bool rm8StockOpen();
 // (Role_TriggerLandEvent -> Game_UseCard / AI_OnLandEvent 0x5E..0x60); true if handled (a human gets the stock board to pick the stock)
 bool rm8StockEvent(int seat, int ev, int param);
 // value of a role's stocks at today's prices: sum of ftol(shares * price) (Stock_CalculateTotalValue @0x4994c0, net worth)
-long rm8StockValue(int seat);
+int32_t rm8StockValue(int seat);	// [N] int32_t
 // [V] Stock_SellAll @0x4992c0: every holding goes back to the market. Returns the money value (ftol, summed); the caller decides who is paid
 // (bankruptcy @0x48f500: nobody; AI_StockTrading @0x4f9310 / News_EventStockLiquidate @0x4b64e0: the deposit)
-long rm8StockSellAll(int seat);
+int32_t rm8StockSellAll(int seat);	// [N] int32_t
 // [V] AI_StockTrading @0x4f9310: the computer's stock step of Role_StayOrBeforeRoll(1); true if it did something (the caller queues 0x25(2))
 bool rm8StockAiTrade(int seat);
 // [V] Game_DispatchCardAction(0x61) via gmaindlg button 7: the human opens the stock board (turn state 6); false if it did not open
@@ -36,7 +36,7 @@ bool rm8StockUiOpen();	// a stock dialog covers the board (hud.cpp skips the num
 void rm8StockMarketEvent(float pct, int days);
 void rm8StockCloseMarket(int days);
 int rm8StockClosedDays();	// the market's closed-days counter (+0x30)
-long rm8StockLiquidateAll();
+int32_t rm8StockLiquidateAll();	// [N] int32_t
 // magic house effects (event_magic.cpp, MagicHouse_ApplyMagicEffect @0x4cdb10):
 // effects 4 / 5: Util_Apply2DTransform @0x4d3900 sets every held stock's forced change (+0x35C = pct, +0x360 = days) with Obj_SetFields35C_360 @0x4bc620
 void rm8StockForceHoldings(int seat, float pct, int days);
@@ -47,7 +47,7 @@ void rm8StockSwapHoldings(int a, int b);
 
 // ---- Python (python.cpp, Stock module and the stock functions of Role)
 int rm8StockCount();				// [V] py_Stock_Sum @0x5015b0: listed stocks (indices 0..n-1 are the slots)
-long rm8StockFlow(int i);			// [V] py_Stock_FlowSum @0x501550: shares left on the market
+int32_t rm8StockFlow(int i);			// [N] [V] py_Stock_FlowSum @0x501550: shares left on the market
 double rm8StockCur(int i);			// [V] py_Stock_CurPrice @0x5015e0
 double rm8StockAvr(int i);			// [V] py_Stock_AvrPrice @0x501650: mean of the 144 history prices
 bool rm8StockTradeEnable(int i);		// [V] py_Stock_TradeEnable @0x5016f0: class > 0
@@ -56,4 +56,4 @@ int rm8StockHoldStock(int seat, int k);		// [V] py_Role_Stock @0x4ffca0: slot of
 double rm8StockHoldPrice(int seat, int k);	// [V] py_Role_StockPrice @0x4ffe60: price of the last purchase
 std::string rm8StockHoldName(int seat, int k);	// [A] the k-th holding's stock name / share count (the playerinfo list)
 int rm8StockHoldQty(int seat, int k);
-long rm8StockHoldValue(int seat, int k);	// [V] py_Role_StockValue @0x4fff30: ftol(shares * price) of the k-th holding (k < 0: all)
+int32_t rm8StockHoldValue(int seat, int k);	// [N] [V] py_Role_StockValue @0x4fff30: ftol(shares * price) of the k-th holding (k < 0: all)

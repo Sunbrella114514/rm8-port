@@ -8,19 +8,19 @@ namespace {
 int g_hdr[4] = {0, 0, 0, 0};	// header +0x18 / +0x1C / +0x20 / +0x24 of a LOADED record (start year / month / day / weekday); g_hdrSet: they are valid
 bool g_hdrSet = false;
 
-long civilDays(int y, int m, int d)	// days since 1970-01-01
+int32_t civilDays(int y, int m, int d)	// [N] days since 1970-01-01
 {
 	y -= m <= 2;
-	long era = (y >= 0 ? y : y - 399) / 400;
+	int32_t era = (y >= 0 ? y : y - 399) / 400;	// [N] int32_t
 	unsigned yoe = (unsigned)(y - era * 400), doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-	return era * 146097 + (long)doe - 719468;
+	return era * 146097 + (int32_t)doe - 719468;	// [N] int32_t
 }
-void civilFromDays(long z, int &y, int &m, int &d)
+void civilFromDays(int32_t z, int &y, int &m, int &d)	// [N] int32_t
 {
 	z += 719468;
-	long era = (z >= 0 ? z : z - 146096) / 146097;
+	int32_t era = (z >= 0 ? z : z - 146096) / 146097;	// [N] int32_t
 	unsigned doe = (unsigned)(z - era * 146097), yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-	long yy = (long)yoe + era * 400;
+	int32_t yy = (int32_t)yoe + era * 400;	// [N] int32_t
 	unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100), mp = (5 * doy + 2) / 153;
 	d = (int)(doy - (153 * mp + 2) / 5 + 1); m = (int)(mp < 10 ? mp + 3 : mp - 9); y = (int)(yy + (m <= 2));
 }
@@ -41,7 +41,7 @@ void rm8SaveGameWriteHeader(Rm8SaveW &w)
 	int sy = g_year, sm = g_month, sd = g_mday, sw = g_wday;
 	if(g_hdrSet){ sy = g_hdr[0]; sm = g_hdr[1]; sd = g_hdr[2]; sw = g_hdr[3]; }
 	else if(g_days > 1){	// the start date = today minus the elapsed days (every day change moved both by one)
-		long z = civilDays(g_year, g_month, g_mday) - (g_days - 1);
+		int32_t z = civilDays(g_year, g_month, g_mday) - (g_days - 1);	// [N] int32_t
 		civilFromDays(z, sy, sm, sd); sw = (int)(((z + 4) % 7 + 7) % 7);
 	}else if(g_s && g_wday > 7) sw = g_wday % 7;
 	w.i32(g_year); w.i32(g_month); w.i32(g_mday); w.i32(g_wday); w.i32(g_days);

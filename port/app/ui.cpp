@@ -46,6 +46,7 @@ struct Widget {
 	int slice = 0; float sliceW = 0;	// [A] stretched HUD bar: 1 = keep the left end, 2 = the right end (sliceW px unscaled)
 	float rot = 0;				// [V] Sprite_SetZRotation @0x462490: picture turned about its centre (degrees, menu_anim.cpp)
 	float uv[4] = {0, 0, 1, 1};		// [A] picFile: the part of the texture drawn (u0 v0 u1 v1; the sprite sheet cells of npc_ui.cpp's reel dialog)
+	bool dyn = false;			// [N] a runtime widget (rm8UiAddWidget): netplay names it by its rank among the UI's runtime widgets of its type (the IDs differ between devices)
 };
 
 }	// namespace
@@ -59,6 +60,7 @@ struct Rm8Ui {
 	std::function<void(int)> onClick;
 	std::function<void(const std::string &)> onClickName;	// events.cpp: dialogs whose widgets all have ID 0
 	int order = 0;	// show order (later on top)
+	bool late = false;	// [N] drawn by rm8UiRenderLate (after the menu's 3D dolls), not by rm8UiRender
 };
 
 namespace {
@@ -67,6 +69,13 @@ std::map<std::string, Rm8Ui*> g_uis;
 int g_showCounter = 0;
 Widget *g_pressed = nullptr, *g_hover = nullptr;
 Rm8Ui *g_pressedUi = nullptr;
+Rm8Ui *g_hoverUi = nullptr;			// [N] the UI of g_hover (the netplay hover command)
+Rm8Ui *g_netHotUi = nullptr; Widget *g_netHot = nullptr;	// [N] the replicated hover of a netplay game (rm8UiNetApplyHover)
+// [N] netplay (net.cpp, docs/netplay.md): this UI's hover comes from the replicated hover command; unset hooks (single player) change nothing
+bool netHoverOf(Rm8Ui *u){ return u && rm8UiNetHooks().netHover && rm8UiNetHooks().netHover(u); }
+}
+static int rm8UiNetKey(Rm8Ui *u, Widget *w);
+namespace {
 
 // ---- font (stb_truetype glyph atlas)
 std::vector<unsigned char> g_fontData;
@@ -585,7 +594,7 @@ bool rm8UiSetPicFileUV(Rm8Ui *u, int id, const std::string &key, float u0, float
 bool rm8UiSetVisible(Rm8Ui *u, int id, bool v){ Widget *w = findId(u, id); if(w) w->visible = v; return w != nullptr; }
 bool rm8UiSetEnabled(Rm8Ui *u, int id, bool v){ Widget *w = findId(u, id); if(w) w->enabled = v; return w != nullptr; }
 void rm8UiOnClick(Rm8Ui *u, std::function<void(int)> fn){ if(u) u->onClick = fn; }
-bool rm8UiHot(Rm8Ui *u, int id){ Widget *w = findId(u, id); return w && u->shown && (w == g_hover || w == g_pressed); }
+bool rm8UiHot(Rm8Ui *u, int id){ Widget *w = findId(u, id); if(netHoverOf(u)) return w && u->shown && u == g_netHotUi && w == g_netHot; return w && u->shown && (w == g_hover || w == g_pressed); }
 // by widget name (the game's FindByName): bank.ui, cardShop.ui ... give every widget ID 0
 static Widget *findName(Rm8Ui *u, const char *name){ if(u) for(Widget *w : u->all) if(!strcasecmp(w->name.c_str(), name)) return w; return nullptr; }
 bool rm8UiSetVisibleN(Rm8Ui *u, const char *name, bool v){ Widget *w = findName(u, name); if(w) w->visible = v; return w != nullptr; }
@@ -596,7 +605,7 @@ bool rm8UiSetTextureN(Rm8Ui *u, const char *name, Texture *t){ Widget *w = findN
 bool rm8UiSetTextureExactN(Rm8Ui *u, const char *name, Texture *t){ Widget *w = findName(u, name); if(w){ w->picTex = t; w->texExact = true; } return w != nullptr; }
 bool rm8UiSetPicFileN(Rm8Ui *u, const char *name, const std::string &key){ Widget *w = findName(u, name); if(w) w->picFile = key; return w != nullptr; }
 bool rm8UiSetColorN(Rm8Ui *u, const char *name, unsigned argb){ Widget *w = findName(u, name); if(w) w->fcolor = argb; return w != nullptr; }
-bool rm8UiHotN(Rm8Ui *u, const char *name){ Widget *w = findName(u, name); return w && u->shown && (w == g_hover || w == g_pressed); }
+bool rm8UiHotN(Rm8Ui *u, const char *name){ Widget *w = findName(u, name); if(netHoverOf(u)) return w && u->shown && u == g_netHotUi && w == g_netHot; return w && u->shown && (w == g_hover || w == g_pressed); }
 void rm8UiOnClickName(Rm8Ui *u, std::function<void(const std::string &)> fn){ if(u) u->onClickName = fn; }
 bool rm8UiSetIgnoreN(Rm8Ui *u, const char *name, bool v){ Widget *w = findName(u, name); if(w) w->ignore = v; return w != nullptr; }
 void rm8UiSetIgnoreAll(Rm8Ui *u, bool v){ if(u) for(Widget *w : u->all) if(w != u->root) w->ignore = v; }
@@ -627,7 +636,7 @@ bool rm8UiPointerDown(float x, float y, bool touch)
 	g_touch = touch; g_pressT = std::chrono::steady_clock::now();
 	Rm8Ui *u = nullptr;
 	Widget *w = hit(x, y, &u);
-	g_pressed = w; g_pressedUi = u; g_hover = w;
+	g_pressed = w; g_pressedUi = u; g_hover = w; g_hoverUi = u;
 	// [V] UiLib_Title mouse-down handler @0x5c31f0 (button, left button, enabled): DownSound (+0x1f4) through the hook @0x4EC680
 	// = CAudioMgr_PlaySample(id,0,0,0,1000,50,1.0,1)
 	if(w && w->type == "button" && w->enabled && w->downSound >= 0) rm8SndPlay(w->downSound);
@@ -641,28 +650,35 @@ bool rm8UiPointerUp(float x, float y)
 	Widget *w = hit(x, y, &u);
 	bool consumed = w != nullptr || g_pressed != nullptr;
 	if(g_touch && std::chrono::duration<float>(std::chrono::steady_clock::now() - g_pressT).count() >= LONG_PRESS){	// [A] long press = inspect, no click
-		g_pressed = nullptr; g_pressedUi = nullptr; g_hover = nullptr; g_touch = false; g_tip.clear();
+		g_pressed = nullptr; g_pressedUi = nullptr; g_hover = nullptr; g_hoverUi = nullptr; g_touch = false; g_tip.clear();
 		return consumed;
 	}
-	if(w && w == g_pressed && w->enabled && u && u->onClick){ Widget *p = w; std::function<void(int)> fn = u->onClick; g_pressed = nullptr; fn(p->id); }	// [V] click = press and release on the same widget
+	if(w && w == g_pressed && w->enabled && u && (u->onClick || u->onClickName) && rm8UiNetHooks().click && rm8UiNetHooks().click(u, rm8UiNetKey(u, w), w->id, w->name)){ g_pressed = nullptr; }	// [N] netplay: sent as a command (or not the local player's turn)
+	else if(w && w == g_pressed && w->enabled && u && u->onClick){ Widget *p = w; std::function<void(int)> fn = u->onClick; g_pressed = nullptr; fn(p->id); }	// [V] click = press and release on the same widget
 	else if(w && w == g_pressed && w->enabled && u && u->onClickName){ std::string nm = w->name; std::function<void(const std::string &)> fn = u->onClickName; g_pressed = nullptr; fn(nm); }
-	g_pressed = nullptr; g_pressedUi = nullptr; g_hover = nullptr;
+	g_pressed = nullptr; g_pressedUi = nullptr; g_hover = nullptr; g_hoverUi = nullptr;
 	return consumed;
 }
 
 void rm8UiPointerMove(float x, float y)
 {
 	g_mx = x; g_my = y;
-	Widget *w = hit(x, y, nullptr);
+	Rm8Ui *hu = nullptr;
+	Widget *w = hit(x, y, &hu);
+	g_hoverUi = w ? hu : nullptr;
 	// [V] UiLib_Title mouse-enter handler @0x5c3460 (enabled, visible): InSound (+0x1f0)
 	if(w && w != g_hover && w->type == "button" && w->enabled && w->inSound >= 0) rm8SndPlay(w->inSound);
 	g_hover = w;
 }
 
-void rm8UiRender(Camera *cam)
+static void renderUis(Camera *cam, bool late);
+void rm8UiRender(Camera *cam){ renderUis(cam, false); }
+void rm8UiRenderLate(Camera *cam){ renderUis(cam, true); }
+void rm8UiSetLate(Rm8Ui *u, bool late){ if(u) u->late = late; }
+static void renderUis(Camera *cam, bool late)
 {
 	std::vector<Rm8Ui*> vis;
-	for(auto &kv : g_uis) if(kv.second && kv.second->shown && kv.second->root) vis.push_back(kv.second);
+	for(auto &kv : g_uis) if(kv.second && kv.second->shown && kv.second->root && kv.second->late == late) vis.push_back(kv.second);
 	if(vis.empty()) return;
 	std::sort(vis.begin(), vis.end(), [](Rm8Ui *a, Rm8Ui *b){ return a->order < b->order; });
 	if(getenv("RM8_DEBUG_UIVIS")){ std::string l = "ui: visible"; for(Rm8Ui *u : vis) l += " " + u->name; rm8Log("%s", l.c_str()); }
@@ -724,7 +740,7 @@ bool rm8UiSetRect(Rm8Ui *u, int id, float x, float y, float w, float h)
 }
 
 // ---- [A] helpers for the front-end menus (menu.cpp): runtime widgets, absolute rectangles, hide all
-void rm8UiHideAll(){ for(auto &kv : g_uis) if(kv.second) kv.second->shown = false; g_pressed = nullptr; g_pressedUi = nullptr; g_hover = nullptr; }
+void rm8UiHideAll(){ for(auto &kv : g_uis) if(kv.second) kv.second->shown = false; g_pressed = nullptr; g_pressedUi = nullptr; g_hover = nullptr; g_hoverUi = nullptr; }
 static std::vector<Rm8Ui*> g_hiddenStack;
 void rm8UiPushHidden(){ g_hiddenStack.clear(); for(auto &kv : g_uis) if(kv.second && kv.second->shown) g_hiddenStack.push_back(kv.second); rm8UiHideAll(); }
 void rm8UiPopHidden(){ for(Rm8Ui *u : g_hiddenStack) rm8UiShow(u, true); g_hiddenStack.clear(); }
@@ -738,7 +754,7 @@ int rm8UiAddWidget(Rm8Ui *u, const char *type, int parentId, float x, float y, f
 	Widget *k = new Widget;
 	k->id = nextId++; k->name = "dyn" + std::to_string(k->id); k->type = type; k->parent = p;
 	k->x = x; k->y = y; k->w = w; k->h = h; k->index = index; k->order = 100000 + k->id;
-	k->bcolor = bcolor; k->fontSize = fontSize;
+	k->bcolor = bcolor; k->fontSize = fontSize; k->dyn = true;
 	if(pic >= 0){ for(int &q : k->pic) q = pic; k->border = 5; }
 	u->all.push_back(k); p->kids.push_back(k);
 	std::sort(p->kids.begin(), p->kids.end(), [](Widget *a, Widget *b){ return a->index != b->index ? a->index < b->index : a->order > b->order; });
@@ -812,4 +828,74 @@ std::string rm8UiWrapText(const std::string &utf8, float width, int fontSize)
 		out.append(start, s - start); lw += adv;
 	}
 	return out;
+}
+
+// ======================================================================== [N] netplay (net.cpp, docs/netplay.md section 3.2)
+// The key of a widget for the replicated click / hover: .ui widgets = their index in the UI's list (the file order, the same on every device);
+// runtime widgets (rm8UiAddWidget) = -2 - their rank among the UI's runtime widgets (their IDs come from one global counter that differs between
+// devices; the order in which a UI creates its runtime widgets does not). -1 = none.
+static int rm8UiNetKey(Rm8Ui *u, Widget *w)
+{
+	if(!u || !w) return -1;
+	int rank = 0;
+	for(size_t i = 0; i < u->all.size(); i++){
+		Widget *k = u->all[i];
+		if(k == w) return w->dyn ? -2 - rank : (int)i;
+		if(k->dyn) rank++;
+	}
+	return -1;
+}
+static Widget *netWidget(Rm8Ui *u, int key)
+{
+	if(!u || key == -1) return nullptr;
+	if(key >= 0) return key < (int)u->all.size() && !u->all[key]->dyn ? u->all[key] : nullptr;
+	int want = -2 - key, rank = 0;
+	for(Widget *k : u->all){ if(!k->dyn) continue; if(rank == want) return k; rank++; }
+	return nullptr;
+}
+Rm8UiNetHooks &rm8UiNetHooks(){ static Rm8UiNetHooks h; return h; }
+Rm8Ui *rm8UiFind(const std::string &name){ auto it = g_uis.find(name); return it == g_uis.end() ? nullptr : it->second; }
+// a replicated click: the widget's handler, exactly as rm8UiPointerUp calls it (the enabled / shown flags are not checked: some are refreshed only when a
+// frame is drawn, which differs between devices; the handlers check the game state themselves)
+bool rm8UiNetApplyClick(const std::string &ui, int key)
+{
+	Rm8Ui *u = rm8UiFind(ui);
+	Widget *w = netWidget(u, key);
+	if(!w){ rm8Log("ui: net click on a missing widget %s/%d", ui.c_str(), key); return false; }
+	if(u->onClick){ std::function<void(int)> fn = u->onClick; fn(w->id); }
+	else if(u->onClickName){ std::string nm = w->name; std::function<void(const std::string &)> fn = u->onClickName; fn(nm); }
+	return true;
+}
+void rm8UiNetApplyHover(const std::string &ui, int key)
+{
+	Rm8Ui *u = ui.empty() ? nullptr : rm8UiFind(ui);
+	Widget *w = netWidget(u, key);
+	g_netHotUi = w ? u : nullptr; g_netHot = w;
+}
+bool rm8UiNetLocalHot(std::string &ui, int &key)
+{
+	Widget *w = g_pressed ? g_pressed : g_hover;
+	Rm8Ui *u = g_pressed ? g_pressedUi : g_hoverUi;
+	if(!w || !u || !u->shown){ ui.clear(); key = -1; return false; }
+	ui = u->name; key = rm8UiNetKey(u, w);
+	return key != -1;
+}
+// test driver (net.cpp RM8_NET_MONKEY): the widgets a tap could click now (shown UIs with a click handler; visible, enabled, not ignored), screen centres
+static bool chainVisible(Widget *w){ for(; w; w = w->parent) if(!w->visible) return false; return true; }
+void rm8UiListButtons(std::vector<Rm8UiButtonInfo> &out)
+{
+	out.clear();
+	for(auto &kv : g_uis){
+		Rm8Ui *u = kv.second;
+		if(!u || !u->shown || !u->root || !(u->onClick || u->onClickName)) continue;
+		for(Widget *w : u->all){
+			if(w == u->root || w->ignore || !w->enabled || !chainVisible(w) || w->aw < 2 || w->ah < 2) continue;
+			if(w->type != "button" && w->type != "title" && !(w->name.size() && u->onClickName)) continue;
+			float cx = w->ax + w->aw / 2, cy = w->ay + w->ah / 2;
+			Rm8Ui *hu = nullptr; Widget *top = hit(cx, cy, &hu);
+			if(top != w) continue;	// covered by something else
+			Rm8UiButtonInfo b; b.ui = u->name; b.key = rm8UiNetKey(u, w); b.id = w->id; b.name = w->name; b.type = w->type; b.x = cx; b.y = cy;
+			out.push_back(b);
+		}
+	}
 }

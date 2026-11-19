@@ -54,6 +54,8 @@ void introHide();
 bool introVisible();
 float now();						// game clock (s), advanced by Update
 const std::string &scenesRoot();			// [A] the scenes directory given to rm8MiniInit (games that load extra definitions, e.g. 21: roles.txt)
+const Rm8Mini21Net &net21();				// [N] N4: game 21 in a netplay game (on = false outside netplay)
+const std::vector<Rm8Mini21Act> &net21Acts();		// [N] the referee's actions so far
 
 // ---- module internals (mg_gfx.cpp / minigame.cpp)
 bool loadSprites(const std::string &path);

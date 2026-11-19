@@ -8,6 +8,7 @@
 #include "Python.h"
 #undef register
 #include "turn.h"
+#include "events.h"
 #include "cards.h"
 #include "stock.h"
 #include "npc.h"
@@ -23,12 +24,23 @@ namespace {
 bool g_ready = false;
 std::map<std::string, PyObject*> g_mods;
 
-int terraOf(long h){ return (int)h - 1; }
-long terraHandle(int t){ return t < 0 ? 0 : t + 1; }
+int terraOf(int32_t h){ return (int)h - 1; }	// [N] int32_t
+int32_t terraHandle(int t){ return t < 0 ? 0 : t + 1; }
 
-PyObject *ret(long v){ return PyInt_FromLong(v); }
-long arg0(PyObject *args, long def = 0){ long v = def; if(PyTuple_Size(args) > 0){ PyObject *o = PyTuple_GetItem(args, 0); if(PyInt_Check(o)) v = PyInt_AsLong(o); } return v; }
-long arg1(PyObject *args, long def = 0){ long v = def; if(PyTuple_Size(args) > 1){ PyObject *o = PyTuple_GetItem(args, 1); if(PyInt_Check(o)) v = PyInt_AsLong(o); } return v; }
+// [N] the Python API's C long is 32-bit on Windows, 64-bit on Android (a 2.4 int that leaves the C long range turns into a PyLong). The game
+// values are int32_t; a Python value enters the game only through these, so that both platforms see what a 32-bit long (the original) sees:
+// pyIsInt32 = a PyInt on Windows (a value outside int32 would be a PyLong there), pyI32 = PyInt_AsLong / PyLong_AsLong with a 32-bit long
+// (outside int32: the OverflowError of PyLong_AsLong, -1)
+bool pyIsInt32(PyObject *o){ return PyInt_Check(o) && PyInt_AS_LONG(o) == (long)(int32_t)PyInt_AS_LONG(o); }
+int32_t pyI32(PyObject *o)
+{
+	long v = PyInt_Check(o) ? PyInt_AsLong(o) : PyLong_AsLong(o);
+	if(v != (long)(int32_t)v){ PyErr_SetString(PyExc_OverflowError, "long int too large to convert to int"); return -1; }
+	return (int32_t)v;
+}
+PyObject *ret(int32_t v){ return PyInt_FromLong((long)v); }	// [N] int32_t
+int32_t arg0(PyObject *args, int32_t def = 0){ int32_t v = def; if(PyTuple_Size(args) > 0){ PyObject *o = PyTuple_GetItem(args, 0); if(pyIsInt32(o)) v = (int32_t)PyInt_AsLong(o); } return v; }
+int32_t arg1(PyObject *args, int32_t def = 0){ int32_t v = def; if(PyTuple_Size(args) > 1){ PyObject *o = PyTuple_GetItem(args, 1); if(pyIsInt32(o)) v = (int32_t)PyInt_AsLong(o); } return v; }
 
 // ---- Role
 PyObject *Role_CurRole(PyObject *, PyObject *){ return ret(rm8TurnCurrent()); }
@@ -40,7 +52,7 @@ PyObject *Role_GameDay(PyObject *, PyObject *){ return ret(rm8GameDay()); }
 PyObject *Role_Sum(PyObject *, PyObject *){ return ret(rm8TurnRoleCount()); }
 PyObject *Role_Exist(PyObject *, PyObject *a){ int r = (int)arg0(a, -1); return ret(r >= 0 && r < rm8TurnRoleCount() && rm8TurnStatus(r) != 7); }
 PyObject *Role_Broken(PyObject *, PyObject *a){ int r = (int)arg0(a, -1); return ret(r >= 0 && r < rm8TurnRoleCount() && rm8TurnStatus(r) == 7); }
-PyObject *Role_StPoint(PyObject *, PyObject *a){ long r = arg0(a, -1); int n = r >= 0 && r < rm8TurnRoleCount() ? rm8TurnNode((int)r) : -1; return ret(n >= 0 ? n + 1 : 0); }	// [A] StPoint handle = node + 1
+PyObject *Role_StPoint(PyObject *, PyObject *a){ int32_t r = arg0(a, -1); int n = r >= 0 && r < rm8TurnRoleCount() ? rm8TurnNode((int)r) : -1; return ret(n >= 0 ? n + 1 : 0); }	// [N] [A] StPoint handle = node + 1
 // ---- Terra
 PyObject *Terra_Owner(PyObject *, PyObject *a){ return ret(rm8GameTerraOwner(terraOf(arg0(a)))); }
 PyObject *Terra_Level(PyObject *, PyObject *a){ return ret(rm8GameTerraLevel(terraOf(arg0(a)))); }
@@ -53,37 +65,36 @@ PyObject *Terra_Terra(PyObject *, PyObject *a){ return ret(terraHandle((int)arg0
 // ---- StPoint
 PyObject *StPoint_Terra(PyObject *, PyObject *a){ return ret(terraHandle(rm8GameNodeTerra((int)arg0(a, 0) - 1))); }
 PyObject *StPoint_Sum(PyObject *, PyObject *){ return ret(rm8GameNodeCount()); }
-PyObject *StPoint_No(PyObject *, PyObject *a){ long h = arg0(a); return ret(h >= 1 ? h - 1 : -1); }
+PyObject *StPoint_No(PyObject *, PyObject *a){ int32_t h = arg0(a); return ret(h >= 1 ? h - 1 : -1); }	// [N] int32_t
 PyObject *Stub(PyObject *, PyObject *){ return ret(0); }
 
 // ---- cards / turn-flow engine functions (cards.cpp is the other end). [V] unless noted a py_* queues a message on the role given as
 // its first argument (Role_EnqueueMsg is called on that role: disassembly of py_Role_Pause @0x4fe660 / py_Role_LostFocus @0x4fe710)
 // [A] StPoint handles are road node index + 1 (the game passes object addresses); 0 = none
-long argN(PyObject *args, int i, long def = 0)
+int32_t argN(PyObject *args, int i, int32_t def = 0)	// [N] int32_t: pyI32 (the 32-bit long result on every platform)
 {
 	if(PyTuple_Size(args) <= i) return def;
 	PyObject *o = PyTuple_GetItem(args, i);
-	if(PyInt_Check(o)) return PyInt_AsLong(o);
-	if(PyLong_Check(o)) return PyLong_AsLong(o);
+	if(PyInt_Check(o) || PyLong_Check(o)) return pyI32(o);
 	return def;
 }
-bool okRole(long r){ return r >= 0 && r < rm8TurnRoleCount(); }
+bool okRole(int32_t r){ return r >= 0 && r < rm8TurnRoleCount(); }	// [N] int32_t
 PyObject *none(){ Py_INCREF(Py_None); return Py_None; }
-void enq(long r, int cmd, long a = 0, long b = 0){ if(okRole(r)) rm8TurnEnqueue((int)r, cmd, (int)a, (int)b); }
-int nodeOf(long h){ return h >= 1 && h <= rm8GameNodeCount() ? (int)h - 1 : -1; }
+void enq(int32_t r, int cmd, int32_t a = 0, int32_t b = 0){ if(okRole(r)) rm8TurnEnqueue((int)r, cmd, (int)a, (int)b); }	// [N] int32_t
+int nodeOf(int32_t h){ return h >= 1 && h <= rm8GameNodeCount() ? (int)h - 1 : -1; }
 
-PyObject *Role_Terra(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) ? terraHandle(rm8GameNodeTerra(rm8TurnNode((int)r))) : 0); }
+PyObject *Role_Terra(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? terraHandle(rm8GameNodeTerra(rm8TurnNode((int)r))) : 0); }	// [N] int32_t
 // py_Role_StPoints @0x4fdc80: breadth-first over the road links, `range` layers from the role's node; dir 0 all, 1 only ahead (the next node),
 // 2 not ahead; with dir != 0 nodes with 3+ links are not expanded; returns the nodes after the start (the tuple (0,) if none)
 PyObject *Role_StPoints(PyObject *, PyObject *a)
 {
-	long r = argN(a, 0, -1), range = argN(a, 1), dir = argN(a, 2);
+	int32_t r = argN(a, 0, -1), range = argN(a, 1), dir = argN(a, 2);	// [N] int32_t
 	std::vector<int> list;
 	if(okRole(r)){
 		list.push_back(rm8TurnNode((int)r));
 		int to = rm8TurnNodeTo((int)r);
 		size_t start = 0, end = 1;
-		for(long step = 0; step < range && step < 32; step++){
+		for(int32_t step = 0; step < range && step < 32; step++){	// [N] int32_t
 			for(size_t i = start; i < end; i++){
 				int nb[16], n = rm8TurnLinks(list[i], nb, 16);
 				if(dir != 0 && n >= 3) continue;
@@ -103,20 +114,20 @@ PyObject *Role_StPoints(PyObject *, PyObject *a)
 	for(size_t k = 1; k < list.size(); k++) PyTuple_SetItem(t, k - 1, ret(list[k] + 1));
 	return t;
 }
-PyObject *Role_TrfTool(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) ? rm8TurnDiceMax((int)r) : 0); }
-PyObject *Role_ChgTrfTool(PyObject *, PyObject *a){ long r = argN(a, 0, -1); if(okRole(r)) rm8TurnSetVehicle((int)r, (int)argN(a, 1)); return none(); }	// py_Role_ChgTrfTool @0x4fe0c0: direct Role_SetTrfTool
-PyObject *Role_Tortoise(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) && rm8CardsTurtle((int)r) > 0); }
-PyObject *Role_SetTrts(PyObject *, PyObject *a){ long r = argN(a, 0, -1); if(okRole(r)) rm8CardsSetTurtle((int)r, (int)argN(a, 1)); return none(); }
+PyObject *Role_TrfTool(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? rm8TurnDiceMax((int)r) : 0); }	// [N] int32_t
+PyObject *Role_ChgTrfTool(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); if(okRole(r)) rm8TurnSetVehicle((int)r, (int)argN(a, 1)); return none(); }	// py_Role_ChgTrfTool @0x4fe0c0: direct Role_SetTrfTool
+PyObject *Role_Tortoise(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) && rm8CardsTurtle((int)r) > 0); }
+PyObject *Role_SetTrts(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); if(okRole(r)) rm8CardsSetTurtle((int)r, (int)argN(a, 1)); return none(); }
 PyObject *Role_Settle(PyObject *, PyObject *a)	// py_Role_Settle @0x4fe2b0: stay flag; the current role also queues 0x25(0)
 {
-	long r = argN(a, 0, -1);
+	int32_t r = argN(a, 0, -1);	// [N] int32_t
 	if(okRole(r)){ rm8CardsSettle((int)r); if(rm8TurnCurrent() == r) enq(r, 0x25, 0, 0); }
 	return none();
 }
 PyObject *Role_Speak(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x5A, argN(a, 1), 0); return none(); }
 PyObject *Role_Wait(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 100); return none(); }
 PyObject *Role_Go(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x1a, argN(a, 1)); return none(); }
-PyObject *Role_Turn(PyObject *, PyObject *a){ long r = argN(a, 0, -1); if(okRole(r)) rm8TurnTurnAround((int)r); return none(); }	// vf16, direct
+PyObject *Role_Turn(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); if(okRole(r)) rm8TurnTurnAround((int)r); return none(); }	// [N] vf16, direct
 PyObject *Role_Pause(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x65, argN(a, 1)); return none(); }
 PyObject *Role_LostFocus(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x2e, argN(a, 1) + 1, argN(a, 2)); return none(); }
 PyObject *Role_Hypnosis(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x28, argN(a, 1)); return none(); }
@@ -126,9 +137,9 @@ PyObject *Role_Prison(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x19, argN(a
 PyObject *Role_Hospital(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x18, argN(a, 1)); return none(); }
 PyObject *Role_ChgPos(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x3d, argN(a, 1), argN(a, 2)); return none(); }
 PyObject *Role_Bubble(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x3e); return none(); }
-PyObject *Role_HasBubble(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) && rm8CardsHasBubble((int)r)); }
+PyObject *Role_HasBubble(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) && rm8CardsHasBubble((int)r)); }	// [N] int32_t
 PyObject *Role_Bodyguard(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x45); return none(); }
-PyObject *Role_HasBdygrd(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) && rm8CardsHasBodyguard((int)r)); }	// py_Role_HasBdygrd @0x4ff3e0: vf+0x64
+PyObject *Role_HasBdygrd(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) && rm8CardsHasBodyguard((int)r)); }	// [N] py_Role_HasBdygrd @0x4ff3e0: vf+0x64
 PyObject *Role_Latent(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x46); return none(); }
 PyObject *Role_Seal(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x59, argN(a, 1)); return none(); }
 PyObject *Role_ReceiveCard(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 4, argN(a, 1), argN(a, 2)); return none(); }	// a = card array index (Id - 1)
@@ -136,26 +147,30 @@ PyObject *Role_TimeBombDis(PyObject *, PyObject *a){ enq(argN(a, 0, -1), 0x51); 
 PyObject *Role_TimeBomb(PyObject *, PyObject *a){ return PyFloat_FromDouble((double)rm8NpcTimeBomb(argN(a, 0, -1))); }	// [V] +0x288 time bomb counter (npc.cpp)
 PyObject *Role_InScn(PyObject *, PyObject *a)	// py_Role_InScn @0x4ff710: can move normally (status < 3), not invisible, projected inside the view
 {
-	long r = argN(a, 0, -1); float p[3];
+	int32_t r = argN(a, 0, -1); float p[3];	// [N] int32_t
 	return ret(okRole(r) && rm8TurnStatus((int)r) < 3 && rm8GameInvisible((int)r) < 1 && rm8RolesGetPos((int)r, p) && rm8CardsPosInView(p));
 }
-PyObject *Role_CardSum(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) ? rm8CardCount((int)r) : 0); }
-PyObject *Role_Card(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) ? rm8CardAt((int)r, (int)argN(a, 1)) : 0); }
-PyObject *Role_HasCard(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) && rm8CardFind((int)r, (int)argN(a, 1)) >= 0); }
+PyObject *Role_CardSum(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? rm8CardCount((int)r) : 0); }	// [N] int32_t
+PyObject *Role_Card(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? rm8CardAt((int)r, (int)argN(a, 1)) : 0); }
+PyObject *Role_HasCard(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) && rm8CardFind((int)r, (int)argN(a, 1)) >= 0); }
 PyObject *Role_CardLevel(PyObject *, PyObject *a){ return ret(rm8CardLevel((int)argN(a, 0))); }
-PyObject *Role_Ticket(PyObject *, PyObject *a){ long r = argN(a, 0, -1); return ret(okRole(r) ? rm8GamePoints((int)r) : 0); }
+PyObject *Role_Ticket(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? rm8GamePoints((int)r) : 0); }	// [N] int32_t
+// py_Role_Borrow @0x4fd920: the loan principal (role +0x298) * 110 / 100 (principal + one 10 % month), 0 without a loan; py_Role_PaybackDay @0x4fd9e0: Bank_ComputeInterest @0x47eae0,
+// the days to the due date of the loan (the loan month + 3, same day), 0 without a loan
+PyObject *Role_Borrow(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? rm8Mul32(rm8EventLoan((int)r), 110) / 100 : 0); }	// [N] int32_t, the original's imul (loans <= 300000: no overflow)
+PyObject *Role_PaybackDay(PyObject *, PyObject *a){ int32_t r = argN(a, 0, -1); return ret(okRole(r) ? rm8EventLoanDaysLeft((int)r) : 0); }
 PyObject *Role_GameDate(PyObject *, PyObject *){ return ret(rm8GameDay()); }	// py_Role_GameDate @0x4ffbf0: g_GameState + 0x14
-PyObject *Role_GameDffty(PyObject *, PyObject *){ return ret(rm8CardsDifficulty); }	// py_Role_GameDffty @0x4ffc70: init.txt difficuty
+PyObject *Role_GameDffty(PyObject *, PyObject *){ return ret(rm8Difficulty()); }	// py_Role_GameDffty @0x4ffc70: InitTxt_GetParam(7), the live option
 PyObject *Role_Average(PyObject *, PyObject *a)	// py_Role_Average @0x4fe870: both cash values meet, or (target invalid) every role that is not bankrupt gets the mean cash
 {
-	long r = argN(a, 0, -1), t = argN(a, 1, -1);
+	int32_t r = argN(a, 0, -1), t = argN(a, 1, -1);	// [N] int32_t
 	if(!okRole(r)) return none();
 	if(okRole(t)){
-		long m = (rm8GameCash((int)r) + rm8GameCash((int)t)) / 2;
+		int32_t m = (rm8GameCash((int)r) + rm8GameCash((int)t)) / 2;	// [N] int32_t
 		rm8GameSetMoney((int)r, m, rm8GameDeposit((int)r)); rm8GameSetMoney((int)t, m, rm8GameDeposit((int)t));
 	}else{
-		long sum = 0; int n = 0;
-		for(int s = 0; s < rm8TurnRoleCount(); s++) if(rm8TurnStatus(s) != 7){ sum += rm8GameCash(s); n++; }
+		int32_t sum = 0; int n = 0;	// [N] int32_t
+		for(int s = 0; s < rm8TurnRoleCount(); s++) if(rm8TurnStatus(s) != 7){ sum = rm8Add32(sum, rm8GameCash(s)); n++; }	// [N] 3+ rich roles pass 2^31: the 32-bit wrap, explicit
 		if(n) for(int s = 0; s < rm8TurnRoleCount(); s++) if(rm8TurnStatus(s) != 7) rm8GameSetMoney(s, sum / n, rm8GameDeposit(s));
 	}
 	return none();
@@ -164,7 +179,7 @@ PyObject *Role_Average(PyObject *, PyObject *a)	// py_Role_Average @0x4fe870: bo
 // trigger; the stock events (94 diamond, 95 red, 96 black card) go to stock.cpp
 PyObject *Role_OnEvent(PyObject *, PyObject *a)
 {
-	long r = argN(a, 0, -1), ev = argN(a, 1), p = argN(a, 2);
+	int32_t r = argN(a, 0, -1), ev = argN(a, 1), p = argN(a, 2);	// [N] int32_t
 	if(okRole(r)){
 		bool ok = ev >= 94 && ev <= 96 && rm8StockEvent((int)r, (int)ev, (int)p);
 		if(!ok && p != 0) enq(r, 0x3b);
@@ -173,7 +188,7 @@ PyObject *Role_OnEvent(PyObject *, PyObject *a)
 }
 PyObject *Role_Grab(PyObject *, PyObject *a)	// py_Role_Grab @0x4fed70
 {
-	long g = argN(a, 0, -1), t = argN(a, 1, -1), kind = argN(a, 2), n = argN(a, 3);
+	int32_t g = argN(a, 0, -1), t = argN(a, 1, -1), kind = argN(a, 2), n = argN(a, 3);	// [N] int32_t
 	if(!okRole(g) || !okRole(t)) return none();
 	if(kind == 1){	// money: the target pays (cash first), the grabber gets it in cash, text str532
 		rm8GameSubMoney((int)t, n, false); rm8GameAddMoney((int)g, n, false);
@@ -188,25 +203,25 @@ PyObject *Role_Grab(PyObject *, PyObject *a)	// py_Role_Grab @0x4fed70
 }
 // ---- Terra / Street / StPoint / Npc
 PyObject *Terra_TermSum(PyObject *, PyObject *){ return ret(rm8GameTerraCount()); }
-PyObject *Terra_Buy(PyObject *, PyObject *a){ long h = argN(a, 0), r = argN(a, 1, -1); if(h && okRole(r)) enq(r, 9, terraOf(h), 1); return none(); }
+PyObject *Terra_Buy(PyObject *, PyObject *a){ int32_t h = argN(a, 0), r = argN(a, 1, -1); if(h && okRole(r)) enq(r, 9, terraOf(h), 1); return none(); }	// [N] int32_t
 PyObject *Terra_Build(PyObject *, PyObject *a)	// py_Terra_Build @0x500860: houses and built plots at once; an empty commercial plot asks a human (business dialog)
 {
-	long h = argN(a, 0), r = argN(a, 1, -1);
+	int32_t h = argN(a, 0), r = argN(a, 1, -1);	// [N] int32_t
 	if(!h || !okRole(r)) return none();
 	int t = terraOf(h);
 	if(rm8GameTerraType(t) == 1 || rm8GameTerraLevel(t) != 0 || !rm8TurnHuman((int)r)) enq(r, 0xC, t, 1);
 	else { enq(r, 1, rm8GamePushText(""), 0x81); enq(r, 0x1C); enq(r, 0xC, t, (int)0x80000000); }
 	return none();
 }
-PyObject *Terra_Break(PyObject *, PyObject *a){ long h = argN(a, 0), r = argN(a, 1, -1); if(h && okRole(r)) enq(r, 0xD, terraOf(h), 1); return none(); }
+PyObject *Terra_Break(PyObject *, PyObject *a){ int32_t h = argN(a, 0), r = argN(a, 1, -1); if(h && okRole(r)) enq(r, 0xD, terraOf(h), 1); return none(); }	// [N] int32_t
 PyObject *Terra_Exchng(PyObject *, PyObject *a)	// py_Terra_Exchng @0x500be0: message 0xE (the role's own plot, the target)
 {
-	long h = argN(a, 0), r = argN(a, 1, -1);
+	int32_t h = argN(a, 0), r = argN(a, 1, -1);	// [N] int32_t
 	if(okRole(r) && h){ int mine = rm8GameNodeTerra(rm8TurnNode((int)r)); if(mine >= 0) enq(r, 0xE, mine, terraOf(h)); }
 	return none();
 }
-PyObject *Terra_Dragon(PyObject *, PyObject *a){ long h = argN(a, 0), r = argN(a, 1, -1); if(okRole(r)) enq(r, 0x31, terraOf(h), 0); return none(); }
-PyObject *Terra_Bomb(PyObject *, PyObject *a){ long p = argN(a, 0), r = argN(a, 1, -1), k = argN(a, 2); if(okRole(r)) enq(r, k == 1 ? 0x36 : 0x37, nodeOf(p), 0); return none(); }
+PyObject *Terra_Dragon(PyObject *, PyObject *a){ int32_t h = argN(a, 0), r = argN(a, 1, -1); if(okRole(r)) enq(r, 0x31, terraOf(h), 0); return none(); }	// [N] int32_t
+PyObject *Terra_Bomb(PyObject *, PyObject *a){ int32_t p = argN(a, 0), r = argN(a, 1, -1), k = argN(a, 2); if(okRole(r)) enq(r, k == 1 ? 0x36 : 0x37, nodeOf(p), 0); return none(); }
 PyObject *Terra_InScn(PyObject *, PyObject *a)
 {
 	float p[3]; int t = terraOf(argN(a, 0));
@@ -216,29 +231,29 @@ PyObject *Street_Close(PyObject *, PyObject *a){ enq(argN(a, 2, -1), 0x2F, argN(
 PyObject *Street_Flow(PyObject *, PyObject *a){ enq(argN(a, 2, -1), 0x30, argN(a, 0), argN(a, 1)); return none(); }
 PyObject *Street_Build(PyObject *, PyObject *a){ enq(argN(a, 1, -1), 0x10, argN(a, 0)); return none(); }
 PyObject *Street_Buy(PyObject *, PyObject *a){ enq(argN(a, 1, -1), 0x44, argN(a, 0)); return none(); }
-PyObject *StPoint_Point(PyObject *, PyObject *a){ long i = argN(a, 0, -1); return ret(i >= 0 && i < rm8GameNodeCount() ? i + 1 : 0); }
+PyObject *StPoint_Point(PyObject *, PyObject *a){ int32_t i = argN(a, 0, -1); return ret(i >= 0 && i < rm8GameNodeCount() ? i + 1 : 0); }	// [N] int32_t
 PyObject *StPoint_Event(PyObject *, PyObject *a){ int n = nodeOf(argN(a, 0)); int e = n >= 0 ? rm8GameNodeEvent(n) : 0; return ret(e > 0 ? e : -1); }
 // [A] NPC numbers in the scripts (the game's NPC array index, py_Npc_* @0x500160..) are npc.h handles - 1; -1 = none
 PyObject *StPoint_Npc(PyObject *, PyObject *a){ int n = nodeOf(argN(a, 0)); int h = n >= 0 ? rm8NpcAt(n) : 0; return ret(h > 0 ? h - 1 : -1); }	// py_StPoint_Npc @0x501160
 PyObject *StPoint_Wonder(PyObject *, PyObject *){ return ret(-1); }
 PyObject *StPoint_InScn(PyObject *, PyObject *a){ float p[3]; int n = nodeOf(argN(a, 0)); return ret(n >= 0 && rm8TurnNodePos(n, p) && rm8CardsPosInView(p)); }
-int npcNode(long no){ for(int n = 0, N = rm8GameNodeCount(); n < N; n++) if(rm8NpcAt(n) == no + 1) return n; return -1; }
-PyObject *Npc_ID(PyObject *, PyObject *a){ long no = argN(a, 0, -1); int id = no >= 0 ? rm8NpcId((int)no + 1) : 0; return ret(id > 0 ? id : -1); }	// py_Npc_ID @0x500340
-PyObject *Npc_GetNpc(PyObject *, PyObject *a){ long no = argN(a, 0, -1); return ret(no >= 0 && rm8NpcId((int)no + 1) > 0 ? no + 1 : 0); }	// py_Npc_GetNpc @0x5002f0 (the object, 0 = none)
+int npcNode(int32_t no){ for(int n = 0, N = rm8GameNodeCount(); n < N; n++) if(rm8NpcAt(n) == no + 1) return n; return -1; }	// [N] int32_t
+PyObject *Npc_ID(PyObject *, PyObject *a){ int32_t no = argN(a, 0, -1); int id = no >= 0 ? rm8NpcId((int)no + 1) : 0; return ret(id > 0 ? id : -1); }	// py_Npc_ID @0x500340
+PyObject *Npc_GetNpc(PyObject *, PyObject *a){ int32_t no = argN(a, 0, -1); return ret(no >= 0 && rm8NpcId((int)no + 1) > 0 ? no + 1 : 0); }	// py_Npc_GetNpc @0x5002f0 (the object, 0 = none)
 PyObject *Npc_Goodness(PyObject *, PyObject *a)	// py_Npc_Goodness @0x500520: the gods 1 4 5 and the board items 10 11
 {
-	long no = argN(a, 0, -1); int id = no >= 0 ? rm8NpcId((int)no + 1) : 0;
+	int32_t no = argN(a, 0, -1); int id = no >= 0 ? rm8NpcId((int)no + 1) : 0;	// [N] int32_t
 	return ret(id == 1 || id == 4 || id == 5 || id == 10 || id == 11);
 }
 PyObject *Npc_InScn(PyObject *, PyObject *a){ float p[3]; int n = npcNode(argN(a, 0, -1)); return ret(n >= 0 && rm8TurnNodePos(n, p) && rm8CardsPosInView(p)); }	// py_Npc_InScn @0x500430
 PyObject *Npc_StPoint(PyObject *, PyObject *a){ int n = npcNode(argN(a, 0, -1)); return ret(n >= 0 ? n + 1 : 0); }	// py_Npc_StPoint @0x5004b0
-PyObject *Npc_Disappear(PyObject *, PyObject *a){ long no = argN(a, 0, -1); if(no >= 0) rm8NpcRemove((int)no + 1); return none(); }	// py_Npc_Disappear @0x5003b0
+PyObject *Npc_Disappear(PyObject *, PyObject *a){ int32_t no = argN(a, 0, -1); if(no >= 0) rm8NpcRemove((int)no + 1); return none(); }	// [N] py_Npc_Disappear @0x5003b0
 // py_Npc_Create @0x500160 (npc id, road point, owner role): the NPC object, sound 0xC / 0x10 / 0x11 for roadblock / mine / bomb, the owner (+0x70).
 // [A] the robot doll (15, queues 0x32 / 0x65 / 0x1e in the game) and the other ids are rm8NpcCreate's business; a failed creation
 // queues 0x3b (the card comes back) for the current role
 PyObject *Npc_Create(PyObject *, PyObject *a)
 {
-	long id = argN(a, 0), loc = argN(a, 1), owner = argN(a, 2, -1);
+	int32_t id = argN(a, 0), loc = argN(a, 1), owner = argN(a, 2, -1);	// [N] int32_t
 	if(rm8StoryNpcPlaced(rm8TurnCurrent(), (int)id)) return none();	// [V] py_Npc_Create @0x500160: CPlayerTag__OnDiceEvent @0x491270 (ECX = the current role) returns 1 -> the NPC is NOT created (story.cpp)
 	if(!rm8NpcCreate((int)id, nodeOf(loc), (int)owner)) enq(rm8TurnCurrent(), 0x3b);
 	return none();
@@ -280,7 +295,7 @@ const Fn kImpl2[] = {
 	{"Role", "Bodyguard", Role_Bodyguard}, {"Role", "HasBdygrd", Role_HasBdygrd}, {"Role", "Latent", Role_Latent}, {"Role", "Seal", Role_Seal},
 	{"Role", "ReceiveCard", Role_ReceiveCard}, {"Role", "TimeBombDis", Role_TimeBombDis}, {"Role", "TimeBomb", Role_TimeBomb}, {"Role", "InScn", Role_InScn},
 	{"Role", "CardSum", Role_CardSum}, {"Role", "Card", Role_Card}, {"Role", "HasCard", Role_HasCard}, {"Role", "CardLevel", Role_CardLevel},
-	{"Role", "Ticket", Role_Ticket}, {"Role", "GameDate", Role_GameDate}, {"Role", "GameDffty", Role_GameDffty}, {"Role", "Average", Role_Average},
+	{"Role", "Ticket", Role_Ticket}, {"Role", "GameDate", Role_GameDate}, {"Role", "GameDffty", Role_GameDffty}, {"Role", "Borrow", Role_Borrow}, {"Role", "PaybackDay", Role_PaybackDay}, {"Role", "Average", Role_Average},
 	{"Role", "OnEvent", Role_OnEvent}, {"Role", "Grab", Role_Grab},
 	{"Terra", "TermSum", Terra_TermSum}, {"Terra", "Buy", Terra_Buy}, {"Terra", "Build", Terra_Build}, {"Terra", "Break", Terra_Break},
 	{"Terra", "Exchng", Terra_Exchng}, {"Terra", "Dragon", Terra_Dragon}, {"Terra", "Bomb", Terra_Bomb}, {"Terra", "InScn", Terra_InScn},
@@ -432,7 +447,7 @@ bool rm8PyInit(const std::string &dir)
 	return true;
 }
 
-bool rm8PyCallAI(const char *script, const char *fn, long param, long &result)
+bool rm8PyCallAI(const char *script, const char *fn, int32_t param, int32_t &result)	// [N] int32_t
 {
 	result = 0;
 	if(!g_ready || !script) return false;
@@ -440,19 +455,18 @@ bool rm8PyCallAI(const char *script, const char *fn, long param, long &result)
 	if(!m){ m = PyImport_ImportModule((char*)script); if(!m){ logError(script); return false; } }
 	PyObject *f = PyObject_GetAttrString(m, (char*)fn);
 	if(!f){ PyErr_Clear(); return false; }	// [V] missing callback -> 0
-	PyObject *v = PyObject_CallFunction(f, (char*)"l", param);
+	PyObject *v = PyObject_CallFunction(f, (char*)"l", (long)param);	// [N] "l" reads a C long: the int32 widened explicitly (64-bit on Android)
 	Py_DECREF(f);
 	if(!v){ logError(fn); return false; }
-	if(PyInt_Check(v)) result = PyInt_AsLong(v);
-	else if(PyLong_Check(v)) result = PyLong_AsLong(v);
-	else if(PyFloat_Check(v)) result = (long)PyFloat_AsDouble(v);	// [V] PyInt_AsLong(result) truncates floats (AI SBuySum returns m * ... / (cp * 100), a float)
+	if(PyInt_Check(v) || PyLong_Check(v)) result = pyI32(v);	// [N] the 32-bit long result on every platform
+	else if(PyFloat_Check(v)) result = rm8F2I32(PyFloat_AsDouble(v));	// [N] like the 32-bit cvttsd2si of Windows; [V] PyInt_AsLong(result) truncates floats (AI SBuySum returns m * ... / (cp * 100), a float)
 	Py_DECREF(v);
 	return true;
 }
 
 // [V] Card_CallPythonCallbackWithParams @0x4ae650 (Execute(param, speakNo[1], speakNo[2])) / Card_CallPythonCallback @0x4ae580 (Competence()):
 // the script module CardPy_NN; false if it is missing or raised
-bool rm8PyCardCall(const char *module, bool execute, long param, long sa, long sb, long &result)
+bool rm8PyCardCall(const char *module, bool execute, int32_t param, int32_t sa, int32_t sb, int32_t &result)	// [N] int32_t
 {
 	result = 0;
 	if(!g_ready || !module) return false;
@@ -460,11 +474,10 @@ bool rm8PyCardCall(const char *module, bool execute, long param, long sa, long s
 	if(!m){ m = PyImport_ImportModule((char*)module); if(!m){ logError(module); return false; } }
 	PyObject *f = PyObject_GetAttrString(m, execute ? (char*)"Execute" : (char*)"Competence");
 	if(!f){ PyErr_Clear(); return false; }
-	PyObject *v = execute ? PyObject_CallFunction(f, (char*)"lll", param, sa, sb) : PyObject_CallFunction(f, nullptr);
+	PyObject *v = execute ? PyObject_CallFunction(f, (char*)"lll", (long)param, (long)sa, (long)sb) : PyObject_CallFunction(f, nullptr);	// [N] C longs for "lll"
 	Py_DECREF(f);
 	if(!v){ logError(module); return false; }
-	if(PyInt_Check(v)) result = PyInt_AsLong(v);
-	else if(PyLong_Check(v)) result = PyLong_AsLong(v);
+	if(PyInt_Check(v) || PyLong_Check(v)) result = pyI32(v);	// [N] the 32-bit long result on every platform
 	Py_DECREF(v);
 	return true;
 }

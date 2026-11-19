@@ -239,7 +239,7 @@ Task *makeAskTask(int seat)
 bool aiQuestion(int seat)
 {
 	int level = pickLevel(seat);
-	long r = 0;
+	int32_t r = 0;	// [N] int32_t
 	rm8PyCallAI(rm8TurnAiScript(seat), "Answer", 0, r);
 	bool right = r != 0;
 	applyEffect(seat, level, right);

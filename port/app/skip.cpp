@@ -42,9 +42,15 @@ bool testTap()
 
 }	// namespace
 
+// [N] netplay (net.cpp): a skip / the '.' key of the local player becomes a command (true = taken); the command runs rm8SkipRequestNow / rm8SkipToggleFastNow
+namespace { bool (*g_skipNet)() = nullptr; bool (*g_fastNet)() = nullptr; }
+void rm8SkipSetNetHooks(bool (*skip)(), bool (*fast)()){ g_skipNet = skip; g_fastNet = fast; }
+bool rm8SkipRequest(){ if(g_skipNet && g_skipNet()) return false; return rm8SkipRequestNow(); }
+void rm8SkipToggleFast(){ if(g_fastNet && g_fastNet()) return; rm8SkipToggleFastNow(); }
+
 // [V] CGamePlayScene__vf13_StopMoving @0x4A3060: this+0x34 (the scene task) non-null -> only ITS vf13 (+0x34) answers; else
 // Role_TryStopMoveUntilDone @0x4986B0 (first waiting role); else Collection_FindFirstByVf60 @0x49DEA0 over the NPCs.
-bool rm8SkipRequest()
+bool rm8SkipRequestNow()
 {
 	if(rm8EventRunning()){	// the event task (cardShop, bank, question ... vf13 of each class, see docs/skip.md section 3)
 		bool r = rm8EventSkip();
@@ -83,8 +89,9 @@ bool rm8SkipTap(rw::Camera *cam, float x, float y, bool onUi)
 	return info || fx;
 }
 
-void rm8SkipToggleFast()
+void rm8SkipToggleFastNow()
 {
+
 	rm8GameSpeed += rm8GameSpeed < 50 ? 50 : -50;	// [V] InitConfig_SetSpeed(0x32) @0x406180: < 0x32 -> +0x32, else -0x32
 	rm8Log("speed: %d (%s)", rm8GameSpeed, rm8GameSpeed >= 50 ? "fast" : "normal");
 }

@@ -18,6 +18,7 @@
 #include "story.h"
 #include "audio.h"
 #include "collect.h"
+#include "rules_plus.h"
 #include <fstream>
 #include <sstream>
 #include <map>
@@ -33,8 +34,6 @@
 #include <thread>
 
 using namespace rw;
-
-int rm8CardsDifficulty = 3;
 
 namespace {
 
@@ -54,9 +53,18 @@ std::map<int, Deck> g_deck;
 Deck &deck(int seat){ return g_deck[seat]; }
 
 // cards-related fields of CPlayerTag that the port keeps here
-struct Extra { int turtle = 0, stay = 0, bubble = 0, days = 0, guard = 0; };	// +0x1cc, +0x1d0, +0x28c counter, +0x1d8, 莎拉's bodyguard counter (path object +0x5f0 / +0x98)
+struct Extra {
+	int turtle = 0, stay = 0, bubble = 0, days = 0, guard = 0;	// +0x1cc, +0x1d0, +0x28c counter, +0x1d8, 莎拉's bodyguard counter (path object +0x5f0 / +0x98)
+	// [R] rules_plus B2 (saved in the RULE chunk, rules_plus.cpp; all 0 while the rules are off): own turns left of the window after leaving the hospital in which a blast halves the stay,
+	// the blasts that hit inside the window (the halving exponent), own turns left of the post-hospital bubble (blast immunity), the current stay was cut to the floor by the rule
+	int grace = 0, chain = 0, immune = 0, camp = 0;
+};
 std::map<int, Extra> g_x;
 Extra &X(int seat){ return g_x[seat]; }
+const Rm8PlusTuning &PT(){ return rm8PlusTuning(); }
+int PL(){ return rm8RulesLevel() - 1; }
+int g_budget[8] = {0, 0, 0, 0, 0, 0, 0, 0};	// [R] rules_plus B4: combo plans left this turn; transient: reset when the computer's card phase starts
+bool g_cardUsed[8] = {false, false, false, false, false, false, false, false};	// a card was used by this computer in this turn (a re-plan only follows a used card)
 
 Camera *g_cam = nullptr;
 Rm8Ui *g_main = nullptr;
@@ -65,6 +73,14 @@ struct Swap { bool on = false; int seat = -1, card = 0, emote = 0; } g_swap;	// 
 struct Throw { bool on = false; int seat = -1, slot = -1; } g_throw;		// the discard / store menu of a hand card is open
 void closeThrow();
 void swapFinish(bool take, int slot);
+// [N] netplay (net.cpp, docs/netplay.md section 3): a local card input (a board pick, the card menu, a cancel) becomes a command that rm8CardsNetApply carries
+// out on every device at the command's frame; without netplay the hook is unset and the input acts at once as before
+bool (*g_cardsNet)(int action, int arg) = nullptr;
+bool netTake(int action, int arg){ return g_cardsNet && g_cardsNet(action, arg); }
+bool g_netRange = false;	// [N] the card range of a netplay game: a fixed 1024 x 768 screen and exact trigonometry (rm8CardsSetNetRange)
+bool throwAllowed(int slot);
+bool openThrow(int slot);
+void pickCommit(int hit);
 
 std::string fmt(const char *f, ...){ char b[512]; va_list ap; va_start(ap, f); vsnprintf(b, sizeof b, f, ap); va_end(ap); return b; }
 // [V] Role_QueueTextMsg @0x484b70: info box message
@@ -111,12 +127,15 @@ struct DefView { float yaw = 225.0f, pitch = 40.0f, dist = 0.0f, vwy = 0.225f; b
 bool projectDefault(const float p[3], const float focus[3], float &sx, float &sy)
 {
 	float yr = g_def.yaw * 3.14159265f / 180.0f, pr = g_def.pitch * 3.14159265f / 180.0f, cp = cosf(pr);
-	V3d eye = {focus[0] + g_def.dist * cp * sinf(yr), g_def.dist * sinf(pr), focus[2] - g_def.dist * cp * cosf(yr)};
+	float syr = sinf(yr), cyr = cosf(yr), spr = sinf(pr);
+	if(g_netRange && g_def.yaw == 225.0f && g_def.pitch == 40.0f){ syr = cyr = -0.70710678118654752f; spr = 0.64278760968653933f; cp = 0.76604444311897804f; }	// [N] no libm in a netplay game (PC and Android round differently)
+	V3d eye = {focus[0] + g_def.dist * cp * syr, g_def.dist * spr, focus[2] - g_def.dist * cp * cyr};
 	V3d fwd = {focus[0] - eye.x, -eye.y, focus[2] - eye.z};
 	float l = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
 	fwd.x /= l; fwd.y /= l; fwd.z /= l;
 	Matrix m; m.setIdentity(); V3d up = {0, 1, 0}; m.lookAt(fwd, up); m.pos = eye;
 	float W = (float)g_cam->frameBuffer->width, H = (float)g_cam->frameBuffer->height;
+	if(g_netRange){ W = 1024.0f; H = 768.0f; }	// [N] netplay: every device (16:9 PC, 20:9 phone) uses the original 4:3 range for humans and the computer alike
 	V2d vw = {g_def.vwy * W / H, g_def.vwy};	// the window camera of rm8_app.cpp (setupWindowCamera): the vertical view stays, a wide screen sees more to the sides
 	if(H > W){ vw.x = 0.3f; vw.y = 0.3f * H / W; }
 	return projectWith(&m, p, sx, sy, &vw);
@@ -254,6 +273,33 @@ bool rm8CardsTurtleRoll(int seat)	// [V] Role_StartRollDice @0x484e50: turtle > 
 }
 bool rm8CardsHasBubble(int seat){ return X(seat).bubble > 0; }	// [V] py_Role_HasBubble @0x4ff290 (+0x28c != 0)
 bool rm8CardsHasBodyguard(int seat){ return rm8TurnCharId(seat) == 16 && X(seat).guard > 0; }	// [V] vf+0x64: 莎拉's class returns "the guard object exists", all others 0
+
+// ---- [R] rules_plus B2: hospital exit anti-camping. All of it is a no-op while the house rules are off.
+void rm8CardsPlusGet(int seat, int out[4]){ Extra &x = X(seat); out[0] = x.grace; out[1] = x.chain; out[2] = x.immune; out[3] = x.camp; }
+void rm8CardsPlusSet(int seat, const int in[4]){ Extra &x = X(seat); x.grace = std::max(0, in[0]); x.chain = std::max(0, in[1]); x.immune = std::max(0, in[2]); x.camp = in[3] ? 1 : 0; }
+bool rm8CardsPlusImmune(int seat){ return rm8RulesOn() && X(seat).immune > 0; }	// the post-hospital bubble: blasts (missile / nuke / mine / time bomb) do not touch the role
+// a blast (CPlayerTag__OnHolidayCardUse victim) hits the role: `days` is the stay the original rules give; inside the window after the last hospital exit it is halved once more per hit
+// (days >> chain, minimum 1: 4 -> 2 -> 1). Hospital stays of other causes (dog, minigame, bodyguard card) and the prison do not come through here.
+int rm8CardsPlusBlastDays(int seat, int days)
+{
+	if(!rm8RulesOn()) return days;
+	Extra &x = X(seat);
+	if(x.grace <= 0){ x.camp = 0; return days; }
+	x.chain++;
+	int nd = std::max(1, days >> std::min(x.chain, 30));
+	x.camp = nd <= rm8PlusTuning().antiCampFloorDays ? 1 : 0;
+	rm8Log("rules+: seat %d (%s) blasted right after the hospital (window: %d own turns left, hit %d): stay %d -> %d days%s", seat, rm8TurnName(seat), x.grace, x.chain, days, nd, x.camp ? " (floor: leaves with a bubble)" : "");
+	return nd;
+}
+// the role leaves the hospital (status 4 -> 0): the window opens; a stay that the rule cut to the floor gives the bubble
+static void plusLeaveHospital(int seat)
+{
+	if(!rm8RulesOn()) return;
+	Extra &x = X(seat);
+	x.grace = rm8PlusTuning().antiCampGraceTurns;
+	if(x.camp){ x.immune = rm8PlusTuning().antiCampBubbleTurns; rm8Log("rules+: seat %d (%s) leaves the hospital with a bubble (%d turns)", seat, rm8TurnName(seat), x.immune); }
+	x.camp = 0;
+}
 // [A] test log RM8_RANGE_LOG=1: how much of the board is in the card range of the acting role (the same function serves the human and the AI)
 static void rangeLog(int seat)
 {
@@ -271,6 +317,11 @@ void rm8CardsTurnStart(int seat, int step)
 	if(step == 0) rm8GameSetInvisible(seat, std::max(0, rm8GameInvisible(seat) - 1));	// [V] Role_DecrementField1E4 @0x48ed70
 	if(step == 3 && X(seat).guard > 0) X(seat).guard--;						// [V] step 3: vf33 CPlayerTag_3__vf33_Decrement @0x480420: counter - 1, below 1 the guard is released
 	if(step == 4 && X(seat).bubble > 0) X(seat).bubble--;					// [V] step 4: the bubble counter (+0x28c)
+	if(step == 4 && rm8RulesOn() && rm8TurnStatus(seat) < 3){	// [R] the own turns of the window / bubble count while the role plays (not while it is in the hospital)
+		Extra &x = X(seat);
+		if(x.grace > 0 && --x.grace == 0) x.chain = 0;
+		if(x.immune > 0) x.immune--;
+	}
 }
 // [V] Role_StayOrBeforeRoll @0x484610: the stay flag (+0x1d0, set by Role.Settle) clears, text str563, then the landing event of the node again
 // [A] test hook RM8_CARD_USE="seat:slot,slot;seat:slot": the seat uses one of these slots per turn (from day RM8_CARD_USE_DAY, default 0) before rolling
@@ -342,7 +393,7 @@ bool rm8CardsStatusStep(int seat)
 	if(x.days < 1){	// the stay is over: status 0, back to the node, continue with 0x25(0) / 0x61
 		x.days = 0; rm8TurnSetStatus(seat, 0);
 		if(st == 5){ info(seat, rm8StrFmt(72, rm8TurnName(seat))); rm8TurnEnqueue(seat, 0x25, 0, 0); }
-		else if(st == 4){ info(seat, rm8StrFmt(62, rm8TurnName(seat))); rm8TurnEnqueue(seat, 0x25, 0, 0); }
+		else if(st == 4){ info(seat, rm8StrFmt(62, rm8TurnName(seat))); rm8TurnEnqueue(seat, 0x25, 0, 0); plusLeaveHospital(seat); }
 		else rm8TurnEnqueue(seat, 0x25, 0, 0);
 	}else{
 		info(seat, st == 5 ? rm8StrFmt(71, rm8TurnName(seat), x.days) : st == 4 ? rm8StrFmt(61, rm8TurnName(seat), x.days) : st == 6 ? rm8StrFmt(359, rm8TurnName(seat), x.days) : rm8StrFmt(562, rm8TurnName(seat), x.days));
@@ -357,7 +408,7 @@ namespace {
 bool execute(int me, const Def &d, int param)
 {
 	(void)me;
-	long res = 0;
+	int32_t res = 0;	// [N] int32_t
 	if(d.py.empty() || !rm8PyCardCall(d.py.c_str(), true, param, d.speak[1], d.speak[2], res)) return false;	// [V] Card_SetCustomValue @0x4ad7a0: (param, speakNo[1], speakNo[2])
 	return res != 0;
 }
@@ -422,7 +473,7 @@ void snapshot(const char *tag)
 	std::string line = fmt("cards: snapshot %s:", tag);
 	for(int s = 0; s < rm8TurnRoleCount(); s++){
 		std::string cs; for(int k = 0; k < 8; k++) if(rm8CardAt(s, k)) cs += (cs.empty() ? "" : ",") + std::to_string(rm8CardAt(s, k));
-		line += fmt(" [s%d cash %ld dep %ld pts %ld node %d veh %d shape %d st %d turtle %d bub %d inv %d stay %d | %s]", s, rm8GameCash(s), rm8GameDeposit(s), rm8GamePoints(s), rm8TurnNode(s), rm8TurnDiceMax(s),
+		line += fmt(" [s%d cash %d dep %d pts %d node %d veh %d shape %d st %d turtle %d bub %d inv %d stay %d | %s]", s, rm8GameCash(s), rm8GameDeposit(s), rm8GamePoints(s), rm8TurnNode(s), rm8TurnDiceMax(s),
 			rm8GameShape(s), rm8TurnStatus(s), X(s).turtle, X(s).bubble, rm8GameInvisible(s), X(s).stay, cs.c_str());
 	}
 	int own[8] = {0}, lv[8] = {0}, none = 0;
@@ -460,7 +511,18 @@ void finishUse(int me, int slot, int result)
 	if(slot < 0 || slot > 7 || !dk.id[slot]) return;
 	const Def *d = def(dk.id[slot]);
 	if(getenv("RM8_DEBUG_CARDS") && g_snapSeat != me && result != 0 && (unsigned)result != 0x80000000u){ snapshot("before(AI)"); g_snapSeat = me; }
+	int hateVictim = -1, hateW = 0;	// [R] rules_plus B3: who is hurt by the card (the owner is read before the card runs: a buy-out changes it)
+	if(rm8RulesOn() && d && result > 0 && (unsigned)result != 0x80000000u && d->id >= 0 && d->id < 50 && PT().hateCard[d->id] > 0){
+		hateW = PT().hateCard[d->id]; int prm = result - 1;
+		switch(d->id){
+		case 1: case 6: { int t = curTerra(me), o = t >= 0 ? rm8GameTerraOwner(t) : -1; if(o >= 0 && o != me) hateVictim = o; break; }
+		case 3: case 4: if(prm >= 0 && prm < rm8GameTerraCount()){ int o = rm8GameTerraOwner(prm); if(o >= 0 && o != me) hateVictim = o; } break;
+		case 10: case 11: case 13: case 20: case 25: case 27: case 28: case 34: case 37: case 38: case 41: case 45: if(prm >= 0 && prm < rm8TurnRoleCount() && prm != me) hateVictim = prm; break;
+		}
+	}
 	bool ok = d && result != 0 && (unsigned)result != 0x80000000u && execute(me, *d, result - 1);
+	if(ok && hateVictim >= 0) rm8HateNote(hateVictim, me, (float)hateW, d->name.c_str());
+	if(ok && rm8RulesOn() && me >= 0 && me < 8 && !rm8TurnHuman(me)) g_cardUsed[me] = true;
 	static const bool dbg = getenv("RM8_DEBUG_CARDS") != nullptr;
 	if(dbg) rm8Log("cards: seat %d (%s) uses card %d (%s) result %d -> %s", me, rm8TurnName(me), d ? d->id : 0, d ? d->name.c_str() : "?", result, ok ? "executed" : "not used");
 	if(!ok) g_snapSeat = -1; else g_snapT = 0;
@@ -531,7 +593,7 @@ void sendToHospital(int me, int days)
 	int hosp = -1;
 	for(int n = 0, N = rm8GameNodeCount(); n < N && hosp < 0; n++) if(rm8GameNodeEvent(n) == 8) hosp = n;
 	if(hosp < 0 || rm8TurnStatus(me) == 7){ rm8Log("cards: no hospital node / role out"); return; }
-	if(rm8TurnStatus(me) == 4){ X(me).days += days; return; }
+	if(rm8TurnStatus(me) == 4){ X(me).days += days; X(me).camp = 0; return; }	// [R] a longer stay than the floor: no bubble at the exit
 	rm8TurnSetStatus(me, 4); X(me).days = days;
 	int nb[8], n = rm8TurnLinks(hosp, nb, 8), to = n > 0 ? nb[0] : hosp;
 	for(int k = 0; k < n; k++){ int m2[8]; if(rm8TurnLinks(nb[k], m2, 8) >= 2){ to = nb[k]; break; } }
@@ -749,7 +811,7 @@ void showChsPlayer(int me, int textId, bool exceptBroke)	// [V] 0x84 / 0x85: chs
 // ---- board picks. [A] the candidates are the ones in the card range (rm8CardsPosInView: the default view on the user, the same for the AI; the camera is locked to it while
 // a pick is open, see rm8CardsPicking / rm8_app.cpp). [A] the game picks with the mouse ray (Game_HandleCardClickInGame @0x4a2940, Game_FindBuildingByType
 // @0x4a3f30); the port takes the candidate whose screen position is nearest to the tap. Filters as in the game.
-struct Cand { int idx; float wp[3]; };
+struct Cand { int idx; float wp[3]; int plot = -1; };	// plot >= 0 [R] rules_plus B5: a building candidate (idx = the node the card script expects)
 std::vector<Cand> candidates(int kind, int flags, int me)
 {
 	std::vector<Cand> c;
@@ -764,6 +826,13 @@ std::vector<Cand> candidates(int kind, int flags, int me)
 		for(int n = 0, N = rm8GameNodeCount(); n < N; n++){
 			if(flags & 1){ bool occ = false; for(int s = 0; s < rm8TurnRoleCount(); s++) occ |= rm8TurnStatus(s) < 3 && rm8TurnNode(s) == n; if(occ) continue; }
 			Cand k; k.idx = n; if(!rm8TurnNodePos(n, k.wp) || !rm8CardsPosInView(k.wp)) continue; k.wp[1] += 6; c.push_back(k);
+		}
+		if(rm8RulesOn() && g_pick.active && (g_pick.cardId == 18 || g_pick.cardId == 19)){	// [R] rules_plus B5: the buildings of the other roles in range can be picked directly (the node of the plot is the result: Execute is unchanged)
+			for(int t = 0; t < rm8GameTerraCount(); t++){
+				int own = rm8GameTerraOwner(t), n = rm8GameTerraNode(t);
+				if(own < 0 || own == me || rm8GameTerraLevel(t) <= 0 || n < 0) continue;
+				Cand k; k.idx = n; k.plot = t; if(!rm8GameTerraPos(t, k.wp) || !rm8CardsPosInView(k.wp)) continue; k.wp[1] += 22; c.push_back(k);
+			}
 		}
 	}else if(kind == 8){	// [V] TerraMgr_FindClosestTerra @0x4f23b0: owner (flags & 0xf): 2 mine, 4 not mine, 8 unowned; level (flags & 0xf00): 0x200 built, 0x400 below 5
 		for(int t = 0; t < rm8GameTerraCount(); t++){
@@ -833,21 +902,28 @@ bool rm8CardsPicking(){ return g_pick.active && rm8TurnState(g_pick.seat) == 7; 
 
 bool rm8CardsOnTap(float x, float y)
 {
-	if(g_throw.on){ closeThrow(); return true; }	// a click beside the card menu closes it
+	if(g_throw.on){ if(!netTake(RM8_CARDNET_CLOSE_THROW, 0)) closeThrow(); return true; }	// a click beside the card menu closes it
 	if(!rm8CardsPicking()) return false;
 	float H = g_cam && g_cam->frameBuffer ? (float)g_cam->frameBuffer->height : 768.0f, best = 70.0f * H / 768.0f;
 	int hit = -1;
 	for(const Cand &c : candidates(g_pick.kind, g_pick.flags, g_pick.seat)){
 		float sx, sy; if(!project(c.wp, sx, sy)) continue;
 		float d = hypotf(sx - x, sy - y);
+		if(c.plot >= 0) d -= 16.0f * H / 768.0f;	// [R] B5: a building wins a near tie with the road node beside it
 		if(d < best){ best = d; hit = c.idx; }
 	}
 	if(hit < 0) return true;	// consumed: a tap beside every candidate does nothing
+	if(!netTake(RM8_CARDNET_PICK, hit)) pickCommit(hit);
+	return true;
+}
+namespace {
+void pickCommit(int hit)
+{
 	rm8HudCloseModal();
 	g_pick.active = false;
 	rm8TurnModalResult(g_pick.seat, hit + 1);	// [V] result = found + 1 (Game_HandleCardClickInGame: +0x228)
-	return true;
 }
+}	// namespace
 
 // ---- the AI (Role_StayOrBeforeRoll @0x484610 with a != 0)
 // AI_PlanCardActions @0x4f9670 (difficulty > 2 only): (card id, parameter) steps, carried out one per Role_BeforeRollDice by Role_UseCardBeforeRoll @0x4fbab0.
@@ -886,14 +962,20 @@ bool roleOnNode(int n){ for(int s = 0; s < rm8TurnRoleCount(); s++) if(rm8TurnSt
 // [V] AI_PlanCardActions @0x4f9670, the first block (shape 5 = possessed by the Land god, no turtle, on a house plot, the street is closed or a seal-up card (5) is held):
 // with the road ahead full of other roles' plots of this street: turtle (10) on oneself, a roadblock (12) on the best plot, or a remote dice (9) to the best plot.
 // A seal-up (5, 1) is queued first when the street is not closed yet
-bool planLandGod(int me, std::vector<Step> &pl)
+// [R] relax (rules_plus B4, difficulty 3): no "on a house plot, street closed or a seal-up card" condition, the plots of every street count, and lower thresholds (1 plot / level sum 3,
+// roadblock on level >= 1, remote dice to level >= 2); false = exactly the original plan
+bool planLandGod(int me, std::vector<Step> &pl, bool relax = false)
 {
 	if(rm8GameShape(me) != 5 || rm8CardsTurtle(me) >= 1) return false;
-	int myT = rm8GameNodeTerra(rm8TurnNode(me));
-	if(myT < 0 || rm8GameTerraType(myT) != 1) return false;
-	int st = rm8GameTerraStreet(myT);
-	bool closed = rm8GameStreetClosed(st);
-	if(!closed && !hasCard(me, 5)) return false;
+	int myT = rm8GameNodeTerra(rm8TurnNode(me)), st = -1;
+	bool closed = true;
+	if(!relax){
+		if(myT < 0 || rm8GameTerraType(myT) != 1) return false;
+		st = rm8GameTerraStreet(myT);
+		closed = rm8GameStreetClosed(st);
+		if(!closed && !hasCard(me, 5)) return false;
+	}
+	auto sameSt = [&](int t){ return relax || rm8GameTerraStreet(t) == st; };
 	auto push = [&](int id, int param){ if(!closed && pl.empty()) pl.push_back({5, 1}); pl.push_back({id, param}); };
 	auto theirs = [&](int t){ return t >= 0 && rm8GameTerraOwner(t) >= 0 && rm8GameTerraOwner(t) != me; };
 	if(hasCard(me, 10)){	// turtle: 2+ plots of the street that belong to others (total level > 3) and no NPC on the way
@@ -902,30 +984,30 @@ bool planLandGod(int me, std::vector<Step> &pl)
 			if(rm8NpcAt(path[k])){ cnt = 0; break; }
 			int t = rm8GameNodeTerra(path[k]);
 			if(!theirs(t)) continue;
-			if(rm8GameTerraStreet(t) == st){ cnt++; sum += rm8GameTerraLevel(t); }
+			if(sameSt(t)){ cnt++; sum += rm8GameTerraLevel(t); }
 			else if(rm8GameTerraLevel(t) != 0){ cnt = 0; break; }
 		}
-		if(cnt > 1 && sum > 3){ push(10, me + 1); return true; }
+		if(relax ? (cnt >= 1 && sum >= 3) : (cnt > 1 && sum > 3)){ push(10, me + 1); return true; }
 	}
 	if(hasCard(me, 12)){	// roadblock: the free node ahead (no role on it, no NPC) with the highest level (>= 2) of this street; an existing roadblock ends the search
-		unsigned thr = 1; int best = -1; std::vector<int> path = locPath(me, 3, 1);
+		unsigned thr = relax ? 0 : 1; int best = -1; std::vector<int> path = locPath(me, 3, 1);
 		for(size_t k = 1; k < path.size(); k++){
 			int h = rm8NpcAt(path[k]);
 			if(h == 0){
 				if(roleOnNode(path[k])) continue;
 				int t = rm8GameNodeTerra(path[k]);
-				if(theirs(t) && rm8GameTerraStreet(t) == st && thr < (unsigned)rm8GameTerraLevel(t)){ best = path[k]; thr = rm8GameTerraLevel(t); }
+				if(theirs(t) && sameSt(t) && thr < (unsigned)rm8GameTerraLevel(t)){ best = path[k]; thr = rm8GameTerraLevel(t); }
 			}else if(rm8NpcId(h) == 12) break;
 		}
 		if(best >= 0){ push(12, best + 1); return true; }
 	}
 	if(hasCard(me, 9)){	// remote dice: the node k steps ahead (k <= 4) with the highest level (>= 3) of this street
-		unsigned thr = 2; int bestK = 0; std::vector<int> path = locPath(me, 4, 1);
+		unsigned thr = relax ? 1 : 2; int bestK = 0; std::vector<int> path = locPath(me, 4, 1);
 		for(size_t k = 1; k < path.size(); k++){
 			int h = rm8NpcAt(path[k]);
 			if(h == 0){
 				int t = rm8GameNodeTerra(path[k]);
-				if(theirs(t) && rm8GameTerraStreet(t) == st && thr < (unsigned)rm8GameTerraLevel(t)){ bestK = (int)k; thr = rm8GameTerraLevel(t); }
+				if(theirs(t) && sameSt(t) && thr < (unsigned)rm8GameTerraLevel(t)){ bestK = (int)k; thr = rm8GameTerraLevel(t); }
 			}else if(rm8NpcId(h) == 12) break;
 		}
 		if(bestK > 0){ push(9, bestK); return true; }
@@ -933,13 +1015,352 @@ bool planLandGod(int me, std::vector<Step> &pl)
 	return false;
 }
 
-bool planCards(int me)
+// [R] rules_plus B2': the hospital exit road = the branch from the hospital node through the neighbour sendToHospital leaves by, up to (not including) the first junction (3+ links);
+// road[0] is the hospital node
+std::vector<int> hospitalExitRoad()
+{
+	std::vector<int> road; int hosp = -1;
+	for(int n = 0, N = rm8GameNodeCount(); n < N && hosp < 0; n++) if(rm8GameNodeEvent(n) == 8) hosp = n;
+	if(hosp < 0) return road;
+	int nb[8], n = rm8TurnLinks(hosp, nb, 8), to = n > 0 ? nb[0] : hosp;
+	for(int k = 0; k < n; k++){ int m2[8]; if(rm8TurnLinks(nb[k], m2, 8) >= 2){ to = nb[k]; break; } }
+	road.push_back(hosp);
+	int prev = hosp, cur = to;
+	for(int guard = 0; guard < 16 && cur != hosp; guard++){
+		int c[8], cn = rm8TurnLinks(cur, c, 8);
+		if(cn >= 3) break;
+		road.push_back(cur);
+		int next = -1; for(int k = 0; k < cn; k++) if(c[k] != prev){ next = c[k]; break; }
+		if(next < 0) break;
+		prev = cur; cur = next;
+	}
+	return road;
+}
+// [R] an AI with a mine (16) or a time bomb (17) lays it on the first nodes of the hospital exit road when somebody is about to leave (the original planCards only lays a mine on the
+// hospital node itself, and has no block for the time bomb at all). Chance per qualifying turn: Rm8PlusTuning::exitTrapPct[difficulty]; own random stream.
+bool planExitTrap(int me, std::vector<Step> &pl)
+{
+	if(!rm8RulesOn()) return false;
+	const Rm8PlusTuning &t = rm8PlusTuning(); const int lv = rm8RulesLevel() - 1;
+	if(t.exitTrapPct[lv] <= 0) return false;
+	bool mine = hasCard(me, 16), bomb = hasCard(me, 17);
+	if(!mine && !bomb) return false;
+	int victim = -1;
+	for(int s = 0; s < rm8TurnRoleCount() && victim < 0; s++) if(s != me && rm8TurnStatus(s) == 4 && X(s).days <= t.exitTrapMaxDays) victim = s;
+	if(victim < 0) return false;
+	std::vector<int> road = hospitalExitRoad(), cand;
+	for(size_t k = 1; k < road.size() && (int)k <= t.exitTrapNodes; k++){
+		int n = road[k]; float p[3];
+		if(rm8NpcAt(n) != 0 || !rm8TurnNodePos(n, p) || !rm8CardsPosInView(p)) continue;
+		int tt = rm8GameNodeTerra(n);
+		if(tt >= 0 && rm8GameTerraOwner(tt) == me) continue;	// CardPy_16.py:18: not on the own plot
+		bool occ = false; for(int s = 0; s < rm8TurnRoleCount(); s++) occ |= rm8TurnStatus(s) < 3 && rm8TurnNode(s) == n;
+		if(!occ) cand.push_back(n);
+	}
+	if(cand.empty() || rm8PlusRand() % 100 >= t.exitTrapPct[lv]) return false;
+	int node = cand[rm8PlusRand() % cand.size()];
+	int card = mine && bomb ? ((rm8PlusRand() & 1) ? 16 : 17) : mine ? 16 : 17;
+	pl = {{card, node + 1}};
+	rm8Log("rules+: AI seat %d (%s) plans card %d on the hospital exit road (node %d, %d of %d) for seat %d (stay days left %d)", me, rm8TurnName(me), card, node, (int)(std::find(road.begin(), road.end(), node) - road.begin()), (int)road.size() - 1, victim, X(victim).days);
+	return true;
+}
+
+// ================================================================ [R] rules_plus B3 / B4 / B5: hate plans, building missiles, card combos
+// All of it only runs while the house rules are on (callers test rm8RulesOn()); every decision uses the rules' own random stream (rm8PlusRand), never the shared ones.
+bool nodeInView(int n){ float p[3]; return n >= 0 && rm8TurnNodePos(n, p) && rm8CardsPosInView(p); }
+bool plotInView(int t){ float p[3]; return rm8GameTerraPos(t, p) && rm8CardsPosInView(p); }
+bool nodeFree(int n){ return n >= 0 && rm8NpcAt(n) == 0 && !roleOnNode(n); }
+bool blastSafe(int s){ return !rm8CardsHasBubble(s) && !rm8CardsHasBodyguard(s) && !rm8CardsPlusImmune(s); }	// a blast leaves the role alone
+
+// ---- B3 can the role card `id` be used on the hated role h now? (the plan must not waste the turn: Execute never fails for the cards below, but a useless card is not played)
+bool roleCardOk(int me, int h, int id)
+{
+	if(h == me || h < 0 || h >= rm8TurnRoleCount() || rm8TurnStatus(h) != 0 || !targetable(h)) return false;
+	int32_t PI = rm8GamePI();	// [N] int32_t
+	switch(id){
+	case 10: return rm8CardsTurtle(h) < 1;							// turtle on the enemy: it crawls one step a turn
+	case 13: { int t = rm8GameNodeTerra(rm8TurnNode(h)); return t >= 0 && rm8GameTerraOwner(t) == me && rm8GameTerraLevel(t) > 0; }	// stay on my plot: it pays again
+	case 20: return rm8GameCash(h) > std::max(rm8Mul32(rm8GameCash(me), 3), 6000 * PI);		// half-cash: only when it is much richer; [N] cash * 3 wraps above 715827882 like the 32-bit long did
+	case 25: return rm8CardCount(h) > 0 && rm8CardCount(me) < rm8CardMax();
+	case 27: return rm8GameCash(h) > 10000 * PI;
+	case 28: return true;									// frame-up: three days of prison
+	case 34: { int sum = 0; for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == h) sum += rm8GameTerraLevel(t); return sum >= 3 && rm8NpcBully(h) < 0; }	// road bully: its rents come to me
+	case 37: case 38: case 41: return rm8GameShape(h) == 0;					// poor / jinx / fool god on it
+	case 45: return rm8CardCount(h) >= 3 && rm8GamePoints(me) >= 50;				// con: all its cards
+	}
+	return false;
+}
+const char *roleCardText(int id)
+{
+	switch(id){
+	case 10: return "turtle on it"; case 13: return "stay on its (my) plot"; case 20: return "half-cash on it"; case 25: return "grabs its card"; case 27: return "taxes it";
+	case 28: return "frames it up"; case 34: return "road bully on it"; case 37: return "poor god on it"; case 38: return "jinx god on it"; case 41: return "fool god on it"; case 45: return "con on it";
+	}
+	return "attacks it";
+}
+// the plan against one hated role (steps are (card, result)): its plot under my feet, a demolition of its best plot in view, else a role card
+bool planAgainst(int me, int h, std::vector<Step> &p, std::string &what)
+{
+	int myT = curTerra(me);
+	if(myT >= 0 && rm8GameTerraOwner(myT) == h && rm8GameTerraLevel(myT) >= 1){
+		if(hasCard(me, 1) && rm8GameShape(me) != 3 && rm8GameCash(me) > 2 * rm8GameTerraPrice(myT)){ p = {{1, 1}}; what = "buys out its plot under its feet"; return true; }
+		if(hasCard(me, 6)){ p = {{6, 1}}; what = "sets the monster on its plot"; return true; }
+	}
+	if(hasCard(me, 3)){
+		int best = -1, bl = 0;
+		for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == h && rm8GameTerraLevel(t) > bl && plotInView(t)){ best = t; bl = rm8GameTerraLevel(t); }
+		if(best >= 0){ p = {{3, best + 1}}; what = "demolishes its level " + std::to_string(bl) + " plot " + std::to_string(best); return true; }
+	}
+	static const int order[] = {28, 25, 34, 27, 20, 38, 37, 41, 10, 45, 13};
+	for(int id : order) if(hasCard(me, id) && supported(id) && roleCardOk(me, h, id)){ p = {{id, h + 1}}; what = roleCardText(id); return true; }
+	return false;
+}
+bool planHate(int me, std::vector<Step> &pl)
+{
+	int hl[8], hn = rm8HateList(me, hl);
+	for(int i = 0; i < hn; i++){
+		std::vector<Step> p; std::string what;
+		if(!planAgainst(me, hl[i], p, what) || !rm8HateAct(me, hl[i], what.c_str())) continue;
+		pl = p;
+		rm8Log("rules+: hate plan: AI seat %d (%s) will use card %d on/against the hated seat %d (%s): %s", me, rm8TurnName(me), p[0].id, hl[i], rm8TurnName(hl[i]), what.c_str());
+		return true;
+	}
+	return false;
+}
+// a card of the Competence path is aimed at somebody: the hated role gets it instead (when the same card can be used on it); the original target is kept otherwise
+void hateRetarget(int me, int id, int &comp)
+{
+	static const int roleCards[] = {10, 11, 13, 20, 25, 27, 28, 34, 37, 38, 41, 45};
+	int hl[8], hn = rm8HateList(me, hl);
+	if(hn <= 0 || comp <= 0) return;
+	bool isRole = false; for(int c : roleCards) isRole |= c == id;
+	for(int i = 0; i < hn; i++){
+		int h = hl[i];
+		if(id == 3){	// demolition: its best plot in view
+			int best = -1, bl = 0;
+			for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == h && rm8GameTerraLevel(t) > bl && plotInView(t)){ best = t; bl = rm8GameTerraLevel(t); }
+			if(best < 0 || best + 1 == comp || !rm8HateAct(me, h, "demolition aimed at its plot")) continue;
+			rm8Log("rules+: hate retarget: AI seat %d (%s) card 3 plot %d -> plot %d of the hated seat %d (%s)", me, rm8TurnName(me), comp - 1, best, h, rm8TurnName(h));
+			comp = best + 1; return;
+		}
+		if(!isRole || comp - 1 == me || comp - 1 == h || id == 11 || !roleCardOk(me, h, id) || !rm8HateAct(me, h, roleCardText(id))) continue;
+		rm8Log("rules+: hate retarget: AI seat %d (%s) card %d target seat %d -> the hated seat %d (%s)", me, rm8TurnName(me), id, comp - 1, h, rm8TurnName(h));
+		comp = h + 1; return;
+	}
+}
+
+// ---- B5 the computer's building missile: value of firing the missile (radius 1) / nuke (radius 3) at a road node. -1e9 = never (own node or, for the missile, an own plot inside: like CardPy_18)
+int32_t blastValue(int me, int node, int radius, bool nuke, const int *hl, int hn, int *hatedOwners)	// [N] int32_t
+{
+	std::vector<int> area = neighbourhood(node, radius);
+	const Rm8PlusTuning &t = PT();
+	int32_t val = 0; std::vector<int> seen;	// [N] int32_t
+	for(int n : area) if(n == rm8TurnNode(me)) return -1000000000;
+	auto hated = [&](int s){ for(int i = 0; i < hn; i++) if(hl[i] == s) return true; return false; };
+	for(int s = 0; s < rm8TurnRoleCount(); s++){
+		if(s == me || rm8TurnStatus(s) >= 3 || std::find(area.begin(), area.end(), rm8TurnNode(s)) == area.end() || !blastSafe(s)) continue;
+		int32_t v = t.blastRoleValue * (hated(s) ? t.blastHatePct : 100) / 100; val += v;	// [N] int32_t
+		if(hated(s) && hatedOwners) hatedOwners[s] = 1;
+	}
+	for(int n : area){
+		int tr = rm8GameNodeTerra(n); if(tr < 0 || std::find(seen.begin(), seen.end(), tr) != seen.end()) continue;
+		seen.push_back(tr);
+		int lv = rm8GameTerraLevel(tr), o = rm8GameTerraOwner(tr);
+		if(lv <= 0 || o < 0) continue;
+		if(o == me){ if(!nuke) return -1000000000; val -= (int32_t)t.blastSelfFactor * lv; continue; }	// [N] int32_t
+		int32_t v = lv * (nuke ? 3 : 2) / 2;	// the nuke also takes the owner away
+		if(hated(o)){ v = v * t.blastHatePct / 100; if(hatedOwners) hatedOwners[o] = 1; }
+		val += v;
+	}
+	return val;
+}
+bool planBlast(int me, std::vector<Step> &pl)
+{
+	const Rm8PlusTuning &t = PT(); const int lv = PL();
+	if(t.blastAiPct[lv] <= 0) return false;
+	bool missile = hasCard(me, 18) && supported(18), nuke = hasCard(me, 19) && supported(19);
+	if(!missile && !nuke) return false;
+	int hl[8], hn = rm8HateList(me, hl);
+	int32_t bestV = 0, bestScore = -1000000000; int bestN = -1, bestCard = 0, bestHated[8] = {0, 0, 0, 0, 0, 0, 0, 0}; int32_t bestMin = 0;	// [N] int32_t
+	for(int card : {18, 19}){
+		if(card == 18 ? !missile : !nuke) continue;
+		int32_t minV = card == 18 ? t.blastMinMissile[lv] : t.blastMinNuke[lv];	// [N] int32_t
+		for(int n = 0, N = rm8GameNodeCount(); n < N; n++){
+			if(!nodeInView(n)) continue;
+			int ho[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+			int32_t v = blastValue(me, n, card == 18 ? 1 : 3, card == 19, hl, hn, ho);	// [N] int32_t
+			if(v - minV > bestScore){ bestScore = v - minV; bestV = v; bestN = n; bestCard = card; bestMin = minV; for(int k = 0; k < 8; k++) bestHated[k] = ho[k]; }
+		}
+	}
+	if(bestN < 0 || bestScore < 0) return false;
+	if(rm8PlusRand() % 100 >= t.blastAiPct[lv]){ rm8Log("rules+: AI seat %d (%s) could fire card %d at node %d (value %d >= %d) but does not (%d%%)", me, rm8TurnName(me), bestCard, bestN, bestV, bestMin, t.blastAiPct[lv]); return false; }
+	int revenge = -1; for(int i = 0; i < hn && revenge < 0; i++) if(bestHated[hl[i]]) revenge = hl[i];
+	if(revenge >= 0) rm8HateAct(me, revenge, "fires a missile at its buildings");	// the relief / the day counter; the shot is fired either way (it is worth it anyway)
+	pl = {{bestCard, bestN + 1}};
+	int plots = 0, levels = 0, roles = 0; std::vector<int> seenT;
+	for(int n : neighbourhood(bestN, bestCard == 18 ? 1 : 3)){
+		int tr = rm8GameNodeTerra(n);
+		if(tr >= 0 && rm8GameTerraOwner(tr) >= 0 && rm8GameTerraOwner(tr) != me && rm8GameTerraLevel(tr) > 0 && std::find(seenT.begin(), seenT.end(), tr) == seenT.end()){ seenT.push_back(tr); plots++; levels += rm8GameTerraLevel(tr); }
+		for(int s = 0; s < rm8TurnRoleCount(); s++) if(s != me && rm8TurnStatus(s) < 3 && rm8TurnNode(s) == n && blastSafe(s)) roles++;
+	}
+	rm8Log("rules+: AI seat %d (%s) plans card %d at node %d: %d enemy plots with buildings (level sum %d) and %d rivals in the blast area, value %d >= %d%s", me, rm8TurnName(me), bestCard, bestN, plots, levels, roles, bestV, bestMin, revenge >= 0 ? ", a hated owner counts double" : "");
+	return true;
+}
+
+// ---- B4 card combos: a data table of plans (names, the cards they need are checked by hasCard inside); `relax` = difficulty 3 of the house rules
+// a node on the rival's way (mode 1 = ahead, 2 = behind it) that holds a plot of mine with a rent of at least comboRentMin x PI; the node must be free and in view
+int trapNode(int me, int s, int mode)
+{
+	int32_t thr = PT().comboRentMin * rm8GamePI(); int best = -1; int32_t br = 0;	// [N] int32_t
+	std::vector<int> path = locPath(s, 3, mode);
+	for(size_t k = 1; k < path.size(); k++){
+		int n = path[k], t = rm8GameNodeTerra(n);
+		if(t < 0 || rm8GameTerraOwner(t) != me || rm8GameTerraLevel(t) <= 0 || !nodeFree(n) || !nodeInView(n)) continue;
+		int32_t r = rm8GameTerraRent(t, true);	// [N] int32_t
+		if(r >= thr && r > br){ br = r; best = n; }
+	}
+	return best;
+}
+bool comboLandGod(int me, std::vector<Step> &pl, bool relax)	// the Land-god card first, then (next re-plan, shape 5) turtle / roadblock / remote dice on the plots ahead
+{
+	if(rm8GameShape(me) == 5) return planLandGod(me, pl, relax);
+	if(rm8GameShape(me) != 0 || !hasCard(me, 40) || !(hasCard(me, 10) || hasCard(me, 12) || hasCard(me, 9))) return false;
+	int cnt = 0, sum = 0; std::vector<int> path = locPath(me, 3, 1);
+	for(size_t k = 1; k < path.size(); k++){
+		int t = rm8GameNodeTerra(path[k]);
+		if(rm8NpcAt(path[k])){ cnt = 0; break; }
+		if(t >= 0 && rm8GameTerraOwner(t) >= 0 && rm8GameTerraOwner(t) != me){ cnt++; sum += rm8GameTerraLevel(t); }
+	}
+	if(cnt >= (relax ? 1 : 2) && sum >= (relax ? 3 : 4)){ pl = {{40, me + 1}}; return true; }
+	return false;
+}
+bool comboTrap(int me, std::vector<Step> &pl, bool)		// turtle on a rival whose next nodes hold my rent + a roadblock on the plot
+{
+	if(!hasCard(me, 10) || !hasCard(me, 12)) return false;
+	for(int s = 0; s < rm8TurnRoleCount(); s++){
+		if(s == me || rm8TurnStatus(s) != 0 || !targetable(s) || rm8CardsTurtle(s) >= 1) continue;
+		int n = trapNode(me, s, 1);
+		if(n >= 0){ pl = {{10, s + 1}, {12, n + 1}}; return true; }
+	}
+	return false;
+}
+bool comboTurnBlock(int me, std::vector<Step> &pl, bool)	// turn the rival round towards my plots behind it + a roadblock on the plot
+{
+	if(!hasCard(me, 11) || !hasCard(me, 12)) return false;
+	for(int s = 0; s < rm8TurnRoleCount(); s++){
+		if(s == me || rm8TurnStatus(s) != 0 || !targetable(s) || rm8CardsTurtle(s) >= 1) continue;
+		int n = trapNode(me, s, 2);
+		if(n >= 0){ pl = {{11, s + 1}, {12, n + 1}}; return true; }
+	}
+	return false;
+}
+bool comboStaySwap(int me, std::vector<Step> &pl, bool)		// the original stay + swap lure (13 + 31) with lower rent thresholds and the plus random stream
+{
+	int myT = curTerra(me);
+	if(!hasCard(me, 31) || !hasCard(me, 13) || myT < 0 || rm8GameTerraOwner(myT) != me || rm8GameStreetClosed(rm8GameTerraStreet(myT))) return false;
+	int32_t PI = rm8GamePI(), rent = rm8GameTerraRent(myT, true), thr = ((int32_t)(rm8PlusRand() % 4000) + 3000) * PI;	// [N] int32_t
+	if(rent < thr) return false;
+	for(int s = 0; s < rm8TurnRoleCount(); s++){
+		if(s == me || rm8TurnStatus(s) != 0 || !targetable(s)) continue;
+		int sh = rm8GameShape(s), t2 = rm8GameNodeTerra(rm8TurnNode(s));
+		if(sh != 1 && sh != 5 && (t2 < 0 || rm8GameTerraOwner(t2) != me)){ pl = {{13, s + 1}, {31, s + 1}}; return true; }
+	}
+	return false;
+}
+bool comboSleepBamboo(int me, std::vector<Step> &pl, bool)	// everybody else sleeps three days, then the bamboo copter to a rich plot of somebody else and its buy-out
+{
+	if(!hasCard(me, 15) || !hasCard(me, 32) || !hasCard(me, 1)) return false;
+	bool others = false; for(int s = 0; s < rm8TurnRoleCount(); s++) others |= s != me && rm8TurnStatus(s) == 0;
+	if(!others) return false;
+	int32_t PI = rm8GamePI(), thr = ((int32_t)(rm8PlusRand() % 6000) + 6000) * PI; int best = -1; float mp[3]; rm8TurnNodePos(rm8TurnNode(me), mp);	// [N] int32_t
+	for(int n = 0; n < rm8GameNodeCount(); n++){
+		float p[3]; if(!rm8TurnNodePos(n, p) || rm8NpcAt(n) != 0) continue;
+		float dx = p[0] - mp[0], dy = p[1] - mp[1], dz = p[2] - mp[2];
+		if(sqrtf(dx * dx + dy * dy + dz * dz) <= 200.0f) continue;
+		int t = rm8GameNodeTerra(n);
+		if(t < 0 || rm8GameTerraOwner(t) < 0 || rm8GameTerraOwner(t) == me) continue;
+		int32_t rent = rm8GameTerraRent(t, false);	// [N] int32_t
+		if(rent > thr && rm8GameCash(me) > 2 * rm8GameTerraPrice(t)){ best = n; thr = rent; }	// nobody is on it after the sleep (the sleepers stay where they are, but the buyer is not a payer)
+	}
+	if(best < 0) return false;
+	pl = {{15, 1}, {32, best + 1}, {1, 1}};
+	return true;
+}
+bool comboBuyDemolish(int me, std::vector<Step> &pl, bool)	// buy the plot under my feet, then demolish another plot of the same owner in view
+{
+	int myT = curTerra(me);
+	if(!hasCard(me, 1) || !hasCard(me, 3) || myT < 0 || rm8GameShape(me) == 3) return false;
+	int o = rm8GameTerraOwner(myT);
+	if(o < 0 || o == me || rm8GameTerraLevel(myT) < 1 || rm8GameCash(me) <= 2 * rm8GameTerraPrice(myT)) return false;
+	int best = -1, bl = 1;
+	for(int t = 0; t < rm8GameTerraCount(); t++) if(t != myT && rm8GameTerraOwner(t) == o && rm8GameTerraLevel(t) > bl && plotInView(t)){ best = t; bl = rm8GameTerraLevel(t); }
+	if(best < 0) return false;
+	pl = {{1, 1}, {3, best + 1}};
+	return true;
+}
+bool comboMonsterBuy(int me, std::vector<Step> &pl, bool)	// the monster razes the plot under my feet (rival's, built), then it is bought cheaply
+{
+	int myT = curTerra(me);
+	if(!hasCard(me, 6) || !hasCard(me, 1) || myT < 0 || rm8GameShape(me) == 3) return false;
+	int o = rm8GameTerraOwner(myT);
+	if(o < 0 || o == me || rm8GameTerraLevel(myT) < 2 || rm8GameCash(me) <= 2 * rm8GameTerraPrice(myT)) return false;
+	pl = {{6, 1}, {1, 1}};
+	return true;
+}
+bool comboStreet(int me, std::vector<Step> &pl, bool)		// my street: the angel (every plot of the street +1 level) then the price rise
+{
+	int myT = curTerra(me);
+	if(!hasCard(me, 30) || !hasCard(me, 29) || myT < 0 || rm8GameTerraOwner(myT) != me) return false;
+	int st = rm8GameTerraStreet(myT); if(st <= 0 || rm8GameStreetClosed(st)) return false;
+	int mine = 0, theirs = 0, room = 0;
+	for(int t = 0; t < rm8GameTerraCount(); t++){
+		if(rm8GameTerraStreet(t) != st) continue;
+		int o = rm8GameTerraOwner(t);
+		if(o == me){ mine++; if(rm8GameTerraLevel(t) < 5) room++; } else if(o >= 0) theirs++;
+	}
+	if(mine < 2 || mine <= theirs || room < 1) return false;
+	pl = {{30, 1}, {29, 1}};
+	return true;
+}
+bool comboCash(int me, std::vector<Step> &pl, bool)		// tax the richest rival in view, then half-cash with it
+{
+	if(!hasCard(me, 27) || !hasCard(me, 20)) return false;
+	int32_t PI = rm8GamePI(); int best = -1; int32_t bc = 0;	// [N] int32_t
+	for(int s = 0; s < rm8TurnRoleCount(); s++)
+		if(s != me && rm8TurnStatus(s) == 0 && targetable(s) && rm8GameCash(s) > std::max(rm8Mul32(rm8GameCash(me), 3), 20000 * PI) && rm8GameCash(s) > bc){ best = s; bc = rm8GameCash(s); }	// [N] explicit 32-bit wrap of cash * 3
+	if(best < 0) return false;
+	pl = {{27, best + 1}, {20, best + 1}};
+	return true;
+}
+struct Combo { const char *name; bool (*fn)(int, std::vector<Step> &, bool); };
+const Combo kCombos[] = {
+	{"land-god card + turtle / roadblock / remote dice", comboLandGod}, {"turtle + roadblock trap", comboTrap}, {"turn + roadblock trap", comboTurnBlock},
+	{"stay + swap lure", comboStaySwap}, {"sleep + bamboo copter + buy-out", comboSleepBamboo}, {"buy-out + demolition", comboBuyDemolish},
+	{"monster + buy-out", comboMonsterBuy}, {"angel + price rise (own street)", comboStreet}, {"tax + half-cash", comboCash},
+};
+bool planCombos(int me, std::vector<Step> &pl)
+{
+	const int n = (int)(sizeof kCombos / sizeof kCombos[0]); const bool relax = PT().comboRelax[PL()] != 0;
+	int start = rm8PlusRand() % n;
+	for(int k = 0; k < n; k++){
+		const Combo &c = kCombos[(start + k) % n];
+		std::vector<Step> p;
+		if(!c.fn(me, p, relax) || p.empty()) continue;
+		pl = p;
+		std::string s; for(const Step &st : p) s += (s.empty() ? "" : " + ") + std::to_string(st.id) + "(" + std::to_string(st.param) + ")";
+		rm8Log("rules+: combo: AI seat %d (%s) plans \"%s\": %s", me, rm8TurnName(me), c.name, s.c_str());
+		return true;
+	}
+	return false;
+}
+
+bool planCards(int me, bool force = false)	// force [R]: the combo re-plans of rules_plus B4 (difficulty 2 / 3 of the house rules) use the plans of the original difficulty 3 whatever the option says
 {
 	std::vector<Step> &pl = g_plan[me];
 	pl.clear();
-	if(rm8CardsDifficulty <= 2) return false;
+	if(!force && rm8Difficulty() <= 2) return false;
 	int node = rm8TurnNode(me), myT = rm8GameNodeTerra(node);
-	long PI = rm8GamePI();
+	int32_t PI = rm8GamePI();	// [N] int32_t
 	if(planLandGod(me, pl)) return true;
 	// exchange + buy: on an own house plot (level < 3) with 2+ own plots in the street: swap with the best other plot, then buy
 	if(hasCard(me, 4) && hasCard(me, 1) && myT >= 0 && rm8GameTerraType(myT) == 1 && rm8GameTerraOwner(myT) == me && rm8GameTerraLevel(myT) < 3 &&
@@ -954,7 +1375,7 @@ bool planCards(int me)
 	}
 	// bamboo copter + buy (or the monster): fly to a far rich plot of someone else that no role stands on
 	if(hasCard(me, 32) && (hasCard(me, 1) || (hasCard(me, 6) && rm8CardSupported(6)))){
-		int best = -1; long thr = ((long)(rm8GameRand() % 6000) + 6000) * PI;
+		int best = -1; int32_t thr = ((int32_t)(rm8GameRand() % 6000) + 6000) * PI;	// [N] int32_t
 		float mp[3]; rm8TurnNodePos(node, mp);
 		for(int n = 0; n < rm8GameNodeCount(); n++){
 			float p[3]; if(!rm8TurnNodePos(n, p) || rm8NpcAt(n) != 0) continue;
@@ -962,7 +1383,7 @@ bool planCards(int me)
 			if(sqrtf(dx * dx + dy * dy + dz * dz) <= 200.0f) continue;
 			int t = rm8GameNodeTerra(n);
 			if(t < 0 || rm8GameTerraOwner(t) < 0 || rm8GameTerraOwner(t) == me) continue;
-			long rent = rm8GameTerraRent(t, false);
+			int32_t rent = rm8GameTerraRent(t, false);	// [N] int32_t
 			if(rent <= thr) continue;
 			bool occ = false; for(int s = 0; s < rm8TurnRoleCount(); s++) occ |= rm8TurnStatus(s) < 3 && rm8TurnNode(s) == n;
 			if(occ) continue;
@@ -972,9 +1393,9 @@ bool planCards(int me)
 	}
 	// stay + swap: on an own plot with a high rent: make a visible role on someone else's ground stay, then swap places with it
 	if(hasCard(me, 31) && hasCard(me, 13) && myT >= 0 && rm8GameTerraOwner(myT) == me){
-		long rent = rm8GameTerraRent(myT, true);
+		int32_t rent = rm8GameTerraRent(myT, true);	// [N] int32_t
 		bool hotel = rm8GameTerraType(myT) == 2 && rm8GameTerraBuild(myT) == 4;
-		long thr = hotel ? ((long)(rm8GameRand() % 6000) + 6000) * PI : ((long)(rm8GameRand() % 8000) + 8000) * PI;
+		int32_t thr = hotel ? ((int32_t)(rm8GameRand() % 6000) + 6000) * PI : ((int32_t)(rm8GameRand() % 8000) + 8000) * PI;	// [N] int32_t
 		if(thr <= rent && !rm8GameStreetClosed(rm8GameTerraStreet(myT))){
 			for(int s = 0; s < rm8TurnRoleCount(); s++){
 				if(s == me || rm8TurnStatus(s) != 0 || !targetable(s)) continue;
@@ -1012,7 +1433,10 @@ bool planCards(int me)
 	}
 	// grab: take the grab cards of a visible computer role, and a god card or a missile (18) of it
 	if(hasCard(me, 25)){
-		for(int s = 0; s < rm8TurnRoleCount(); s++){
+		std::vector<int> order;	// [R] rules_plus B3: the roles the computer hates are looked at first (the original order otherwise)
+		if(rm8RulesOn()){ int hl[8], hn = rm8HateList(me, hl); for(int i = 0; i < hn; i++) order.push_back(hl[i]); }
+		for(int s = 0; s < rm8TurnRoleCount(); s++) if(std::find(order.begin(), order.end(), s) == order.end()) order.push_back(s);
+		for(int s : order){
 			if(s == me || rm8TurnStatus(s) >= 3 || rm8TurnHuman(s) || !targetable(s)) continue;	// [V] the +0x1b0 field must be set (a computer)
 			int c25 = 0, god = 0, missile = -1;
 			for(int k = 0; k < 8; k++){
@@ -1043,7 +1467,7 @@ bool planCards(int me)
 	}
 	// turn (11): not on the way as the road bully / possessed by the Land god, no turtle; a roadblock (NPC 12) ahead on another role's plot whose rent beats 3000..5999 x price index
 	if(hasCard(me, 11) && rm8CardsTurtle(me) < 1 && rm8GameShape(me) != 1 && rm8GameShape(me) != 5){
-		long thr = ((long)(rm8GameRand() % 3000) + 3000) * PI;
+		int32_t thr = ((int32_t)(rm8GameRand() % 3000) + 3000) * PI;	// [N] int32_t
 		std::vector<int> path = locPath(me, 3, 1);
 		for(size_t k = 1; k < path.size(); k++){
 			int h = rm8NpcAt(path[k]);
@@ -1072,6 +1496,23 @@ bool planCards(int me)
 }
 }	// namespace
 
+// [R] rules_plus B4: after the computer used a card in this turn, beforeRollDice (roles.cpp) may plan again (the original plans once, at the start of the turn): up to comboBudget[difficulty]
+// re-plans per turn, each with comboPct % chance, with the plans of the original difficulty 3 and then the combo table
+bool rm8CardsAiReplan(int me)
+{
+	if(!rm8RulesOn() || rm8TurnHuman(me) || me < 0 || me >= 8) return false;
+	const Rm8PlusTuning &t = PT(); const int lv = PL();
+	if(g_budget[me] <= 0 || !g_cardUsed[me] || t.comboBudget[lv] <= 0) return false;
+	std::vector<Step> &pl = g_plan[me];
+	pl.clear();
+	bool orig = planCards(me, true);
+	if(!orig && !planCombos(me, pl)) return false;	// nothing to follow up with
+	if(rm8PlusRand() % 100 >= t.comboPct[lv]){ rm8Log("rules+: combo: AI seat %d (%s) has a follow-up plan but skips it (%d%%)", me, rm8TurnName(me), t.comboPct[lv]); pl.clear(); g_budget[me] = 0; return false; }
+	g_budget[me]--;
+	if(orig) rm8Log("rules+: combo: AI seat %d (%s) re-plans with the original plans (%d steps, %d re-plans left)", me, rm8TurnName(me), (int)pl.size(), g_budget[me]);
+	return rm8CardsAiUsePlanned(me);
+}
+
 bool rm8CardsAiUsePlanned(int me)	// [V] Role_UseCardBeforeRoll @0x4fbab0: the next planned card that the role holds
 {
 	std::vector<Step> &pl = g_plan[me];
@@ -1091,22 +1532,69 @@ bool rm8CardsAiUsePlanned(int me)	// [V] Role_UseCardBeforeRoll @0x4fbab0: the n
 	return false;
 }
 
+// [A] test hooks of the house rules (all-computer runs): RM8_PLUS_TEST_HOSP="seat:day:days;..." sends the seat to the hospital for `days` days (message 0x18, no blast) the first time its card phase
+// comes on that day or later; RM8_PLUS_TEST_BLAST="seat:day:baseDays;..." blasts the seat itself (like a mine, hospital base `baseDays`) every time its card phase comes on that day or later while it is
+// on the board. Both only exist to show the anti-camping chain (4 -> 2 -> 1 -> bubble) without waiting for the dice; they are not part of any rule.
+static bool plusTestHooks(int me)
+{
+	static const char *eh = getenv("RM8_PLUS_TEST_HOSP"), *eb = getenv("RM8_PLUS_TEST_BLAST"), *en = getenv("RM8_PLUS_TEST_NEAR");
+	if(!eh && !eb && !en) return false;
+	static std::vector<int> hospDone;
+	if(en){	// RM8_PLUS_TEST_NEAR="seat:day;...": the seat is put on the junction next to the hospital exit branch (the card range of an AI is its own screen) before its card phase
+		std::stringstream ss(en); std::string part;
+		while(std::getline(ss, part, ';')){
+			int s = -1, d = 0; if(sscanf(part.c_str(), "%d:%d", &s, &d) != 2 || s != me || rm8GameDay() < d) continue;
+			bool done = false; for(int x : hospDone) done |= x == -1 - me; if(done) continue;
+			hospDone.push_back(-1 - me);
+			std::vector<int> road = hospitalExitRoad();
+			int last = road.empty() ? -1 : road.back(), prev = road.size() >= 2 ? road[road.size() - 2] : -1, c[8], cn = last >= 0 ? rm8TurnLinks(last, c, 8) : 0, j = -1;
+			for(int k = 0; k < cn; k++) if(c[k] != prev){ j = c[k]; break; }
+			if(j >= 0){ rm8Log("rules+: TEST seat %d is put on node %d next to the hospital exit road", me, j); rm8TurnPlaceAt(me, j, last); }
+		}
+	}
+	auto each = [&](const char *spec, auto fn){
+		std::stringstream ss(spec); std::string part;
+		while(std::getline(ss, part, ';')){ int s = -1, d = 0, v = 0; if(sscanf(part.c_str(), "%d:%d:%d", &s, &d, &v) == 3 && s == me && rm8GameDay() >= d && fn(d, v)) return true; }
+		return false;
+	};
+	if(eh && each(eh, [&](int d, int days){
+		for(int x : hospDone) if(x == me * 1000 + d) return false;
+		hospDone.push_back(me * 1000 + d); rm8Log("rules+: TEST seat %d goes to the hospital for %d days", me, days); rm8TurnEnqueue(me, 0x18, days, 0); return true; })) return true;
+	if(eb && rm8TurnStatus(me) == 0 && each(eb, [&](int, int base){
+		rm8Log("rules+: TEST blast on seat %d (base %d days)", me, base); rm8NpcBlast(me, rm8TurnNode(me), 0x1775, 0x43, 0, base, 0); return true; })) return true;
+	return false;
+}
+
 bool rm8CardsAiStart(int me)
 {
+	if(plusTestHooks(me)) return true;
+	if(rm8RulesOn() && me >= 0 && me < 8){ g_budget[me] = PT().comboBudget[PL()]; g_cardUsed[me] = false; }	// [R] B4: a new card phase
 	// [V] Role_StayOrBeforeRoll @0x484610: AI_PlanCardActions first; a plan is carried out by Role_BeforeRollDice (Role_UseCardBeforeRoll)
 	if(planCards(me)) return false;
+	if(rm8RulesOn() && planExitTrap(me, g_plan[me])) return false;	// [R] rules_plus B2': a trap on the hospital exit road (after the original plans; carried out like them)
+	if(rm8RulesOn() && me >= 0 && me < 8){	// [R] B3 revenge on a hated role, B5 the building missile, B4 a combo (in this order; each only after the original plans failed)
+		if(planHate(me, g_plan[me])) return false;
+		if(planBlast(me, g_plan[me])) return false;
+		if(g_budget[me] > 0 && PT().comboBudget[PL()] > 0 && planCombos(me, g_plan[me])){
+			if(rm8PlusRand() % 100 < PT().comboPct[PL()]){ g_budget[me]--; return false; }
+			rm8Log("rules+: combo: AI seat %d (%s) has a combo plan but skips it (%d%%)", me, rm8TurnName(me), PT().comboPct[PL()]); g_plan[me].clear();
+		}
+	}
 	// [V] Role_UseSpecialCard @0x4fbd10 (AI_PlanCardActions returned 0): only after day 2; difficulty < 2 uses a card half of the time
 	if(rm8GameDay() <= 2) return false;
-	if(rm8CardsDifficulty < 2 && !(rm8GameRand() & 1)) return false;
+	if(rm8Difficulty() < 2 && !(rm8GameRand() & 1)) return false;
 	int slots[8], comp[8], n = 0, best = -1;
 	for(int k = 0; k < 8; k++){
 		int id = rm8CardAt(me, k); const Def *d = id ? def(id) : nullptr;
 		if(!d || !supported(id) || d->py.empty()) continue;
-		long res = -1;
+		int32_t res = -1;	// [N] int32_t
 		if(!rm8PyCardCall(d->py.c_str(), false, 0, 0, 0, res)) res = -1;	// Card_GetCustomValue @0x4ad410 = Competence()
 		slots[n] = k; comp[n] = (int)res + 1;
 		static const bool dbgc = getenv("RM8_DEBUG_COMP") != nullptr;	// [A] test log: the Competence() of every card the AI looks at
-		if(dbgc) rm8Log("cards: competence seat %d card %d = %ld", me, id, res);
+		if(dbgc) rm8Log("cards: competence seat %d card %d = %d", me, id, res);
+		if(rm8RulesOn() && comp[n] > 0){	// [R] B5: the AI nuke is limited to the card range like the human's (CardPy_19.Competence looks at the whole map); B3: the hated role gets the card
+			if(id == 19 && PT().blastNukeRange && !nodeInView(comp[n] - 1)){ rm8Log("rules+: AI seat %d (%s): the nuke at node %d is out of its card range", me, rm8TurnName(me), comp[n] - 1); comp[n] = 0; }
+		}
 		if(comp[n] > 0){
 			if(id == 21){ best = n; n++; break; }	// the rich-for-all card is always taken
 			if(id == 11) best = n;
@@ -1118,6 +1606,7 @@ bool rm8CardsAiStart(int me)
 	if(best < 0) best = rm8GameRand() % n;
 	const Def *d = def(rm8CardAt(me, slots[best]));
 	if(!d) return false;
+	if(rm8RulesOn()) hateRetarget(me, d->id, comp[best]);	// [R] B3: the card that was picked goes to the hated role when it can
 	static const bool dbg = getenv("RM8_DEBUG_CARDS") != nullptr;
 	if(dbg) rm8Log("cards: AI seat %d (%s) picks card %d (%s), Competence %d", me, rm8TurnName(me), d->id, d->name.c_str(), comp[best] - 1);
 	info(me, rm8StrFmt(261, rm8TurnName(me), d->name.c_str()));	// "%s使用%s"
@@ -1193,10 +1682,11 @@ void throwChoice(int id)
 }
 // [V] Game_DispatchCardAction(0x6f) @0x4a4420 + Game_TriggerWonderEvent @0x4a43e0 (state 6 only): state 9, the queues are cleared and 100 queued (the dice question again after the
 // menu); Card_ThrowPrepare @0x4aea80: button 2 (store) only in the story mode, the menu sits above the card ([A] clamped to the screen)
+bool throwAllowed(int slot){ int cur = rm8TurnCurrent(); return !(g_throw.on || g_swap.on || !rm8TurnHuman(cur) || rm8TurnState(cur) != 6 || !rm8CardAt(cur, slot) || !g_main); }
 bool openThrow(int slot)
 {
 	int cur = rm8TurnCurrent();
-	if(g_throw.on || g_swap.on || !rm8TurnHuman(cur) || rm8TurnState(cur) != 6 || !rm8CardAt(cur, slot) || !g_main) return false;
+	if(!throwAllowed(slot)) return false;
 	Rm8Ui *u = throwUi();
 	if(!u) return false;
 	static bool wired = false;
@@ -1266,10 +1756,35 @@ void rm8CardsHudRender(Camera *cam)
 	SetRenderState(VERTEXALPHA, 1); SetRenderState(SRCBLEND, BLENDSRCALPHA); SetRenderState(DESTBLEND, BLENDINVSRCALPHA);
 	SetRenderStatePtr(TEXTURERASTER, nullptr);
 	float s = (float)cam->frameBuffer->height / 768.0f, r = 9.0f * s;
-	for(const Cand &c : candidates(g_pick.kind, g_pick.flags, g_pick.seat)){	// the valid targets: yellow diamonds
+	std::vector<Cand> cs = candidates(g_pick.kind, g_pick.flags, g_pick.seat);
+	for(const Cand &c : cs){	// the valid targets: yellow diamonds ([R] B5: the buildings of the others are bigger orange-red ones)
 		float sx, sy; if(!project(c.wp, sx, sy)) continue;
-		fillQuad(cam, sx - r - 2, sy - r - 2, sx + r + 2, sy + r + 2, 0xff000000);
-		fillQuad(cam, sx - r, sy - r, sx + r, sy + r, 0xffffe030);
+		float rr = c.plot >= 0 ? r * 1.25f : r;
+		fillQuad(cam, sx - rr - 2, sy - rr - 2, sx + rr + 2, sy + rr + 2, 0xff000000);
+		fillQuad(cam, sx - rr, sy - rr, sx + rr, sy + rr, c.plot >= 0 ? 0xffff6a28 : 0xffffe030);
+	}
+	if(rm8RulesOn() && g_pick.kind == 2 && (g_pick.cardId == 18 || g_pick.cardId == 19)){	// [R] B5: the blast area of the candidate under the pointer (or the last tap): orange = hit, red = my own plots / my own place
+		float px, py; rm8UiPointerPos(px, py);
+		float bd = 70.0f * s; int hit = -1;
+		for(size_t i = 0; i < cs.size(); i++){ float sx, sy; if(!project(cs[i].wp, sx, sy)) continue; float d = hypotf(sx - px, sy - py) - (cs[i].plot >= 0 ? 16.0f * s : 0.0f); if(d < bd){ bd = d; hit = (int)i; } }
+		if(hit >= 0){
+			std::vector<int> area = neighbourhood(cs[hit].idx, g_pick.cardId == 19 ? 3 : 1);
+			int me = g_pick.seat; std::vector<int> seen;
+			{ static int lastNode = -2; if(lastNode != cs[hit].idx){ lastNode = cs[hit].idx; if(getenv("RM8_DEBUG_CARDS")) rm8Log("cards: blast preview of card %d at node %d (%s): %d nodes in the area", g_pick.cardId, cs[hit].idx, cs[hit].plot >= 0 ? "a building" : "a road node", (int)area.size()); } }
+			for(int n : area){
+				float wp[3], sx, sy; if(!rm8TurnNodePos(n, wp)) continue; wp[1] += 6; if(!project(wp, sx, sy)) continue;
+				bool mine = n == rm8TurnNode(me); int t = rm8GameNodeTerra(n);
+				if(t >= 0 && rm8GameTerraOwner(t) == me && rm8GameTerraLevel(t) > 0) mine = true;
+				float q = (mine ? 17.0f : 14.0f) * s;
+				fillQuad(cam, sx - q, sy - q, sx + q, sy + q, mine ? 0xb8ff1010 : 0x78ff6010);
+				if(t >= 0 && rm8GameTerraLevel(t) > 0 && rm8GameTerraOwner(t) >= 0 && std::find(seen.begin(), seen.end(), t) == seen.end()){	// a building that goes: a ring round its marker
+					seen.push_back(t); float tp[3], tx, ty;
+					if(rm8GameTerraPos(t, tp)){ tp[1] += 22; if(project(tp, tx, ty)){ float w = 18.0f * s, th = 4.0f * s; bool own = rm8GameTerraOwner(t) == me; uint32 col = own ? 0xffff0000 : 0xfff03800;
+						fillQuad(cam, tx - w, ty - w, tx + w, ty - w + th, col); fillQuad(cam, tx - w, ty + w - th, tx + w, ty + w, col);
+						fillQuad(cam, tx - w, ty - w, tx - w + th, ty + w, col); fillQuad(cam, tx + w - th, ty - w, tx + w, ty + w, col); } }
+				}
+			}
+		}
 	}
 	SetRenderState(ZTESTENABLE, zt); SetRenderState(ZWRITEENABLE, zw); SetRenderState(ALPHATESTFUNC, atf); SetRenderState(CULLMODE, cull);
 }
@@ -1283,8 +1798,8 @@ bool rm8CardsOnSlotClick(int k)	// [V] Card_OnSelected @0x4e9340 (param 1)
 	if(!d) return false;
 	if(g_swap.on && cur == g_swap.seat){ swapFinish(true, k); return true; }	// [V] Card_OnSelected @0x4e9340: not state 6, no shop: Card_HandleSwap(slot)
 	if(g_sell){	// [V] Role_SellCardForTickets @0x488cf0: the card goes, Role_AddTicket(price / 2) (at most 9999 points: Role_AddTicket @0x489ed0)
-		if(getenv("RM8_DEBUG_CARDS")) rm8Log("cards: seat %d sells card %d (%s) for %d points (had %ld)", cur, d->id, d->name.c_str(), d->price / 2, rm8GamePoints(cur));
-		rm8CardRemoveAt(cur, k); rm8GameAddPoints(cur, std::min<long>(d->price / 2, 9999 - rm8GamePoints(cur))); return true;
+		if(getenv("RM8_DEBUG_CARDS")) rm8Log("cards: seat %d sells card %d (%s) for %d points (had %d)", cur, d->id, d->name.c_str(), d->price / 2, rm8GamePoints(cur));
+		rm8CardRemoveAt(cur, k); rm8GameAddPoints(cur, std::min<int32_t>(d->price / 2, 9999 - rm8GamePoints(cur))); return true;	// [N] int32_t
 	}
 	if(rm8TurnHuman(cur) && rm8TurnState(cur) == 6){
 		if(d->type == 2) return false;			// [V] Role_TryUseCardInSlot @0x488c80: passive cards cannot be used
@@ -1321,15 +1836,39 @@ bool rm8CardsCancelPick(){ if(!rm8CardsPicking()) return false; int s = g_pick.s
 
 bool rm8CardsOnRightClick(float, float)
 {
-	if(g_throw.on){ closeThrow(); return true; }	// [V] the dialog's MoveOut: leaving it closes it
-	if(g_hover >= 0 && openThrow(g_hover)) return true;	// [V] Card_OnSelected event 3 (right button on the card)
+	if(g_throw.on){ if(!netTake(RM8_CARDNET_CLOSE_THROW, 0)) closeThrow(); return true; }	// [V] the dialog's MoveOut: leaving it closes it
+	if(g_hover >= 0 && throwAllowed(g_hover)){ if(!netTake(RM8_CARDNET_OPEN_THROW, g_hover)) openThrow(g_hover); return true; }	// [V] Card_OnSelected event 3 (right button on the card)
 	// [V] CGamePlayScene vf11 @0x4a2cf0: the first role in state 7: +0x228 = 0, +0x224 = 1 = the dialog's result 0
-	if(rm8CardsPicking()){ int s = g_pick.seat; rm8HudCloseModal(); g_pick.active = false; rm8TurnModalResult(s, 0); return true; }
+	if(rm8CardsPicking()){ if(!netTake(RM8_CARDNET_CANCEL_PICK, 0)){ int s = g_pick.seat; rm8HudCloseModal(); g_pick.active = false; rm8TurnModalResult(s, 0); } return true; }
 	for(const char *n : {"dice", "rob", "chsplayer"}){
 		Rm8Ui *u = rm8UiLoad(n, RM8UI_DIALOG);
-		if(u && rm8UiVisible(u) && g_dlgSeat >= 0 && rm8TurnState(g_dlgSeat) == 7){ rm8UiShow(u, false); rm8TurnModalResult(g_dlgSeat, 0); return true; }
+		if(u && rm8UiVisible(u) && g_dlgSeat >= 0 && rm8TurnState(g_dlgSeat) == 7){ if(!netTake(RM8_CARDNET_CANCEL_DLG, 0)){ rm8UiShow(u, false); rm8TurnModalResult(g_dlgSeat, 0); } return true; }
 	}
 	return false;
+}
+
+// ---- [N] netplay (net.cpp): the card commands, carried out on every device at the same frame
+void rm8CardsSetNetHook(bool (*fn)(int action, int arg)){ g_cardsNet = fn; }
+void rm8CardsSetNetRange(bool on){ g_netRange = on; }
+int rm8CardsSwapSeat(){ return g_swap.on ? g_swap.seat : -1; }
+void rm8CardsNetApply(int action, int arg)
+{
+	switch(action){
+	case RM8_CARDNET_PICK:	// the target must be a candidate here too (the same range on every device: g_netRange)
+		if(!rm8CardsPicking()) break;
+		for(const Cand &c : candidates(g_pick.kind, g_pick.flags, g_pick.seat)) if(c.idx == arg){ pickCommit(arg); break; }
+		break;
+	case RM8_CARDNET_CLOSE_THROW: closeThrow(); break;
+	case RM8_CARDNET_OPEN_THROW: openThrow(arg); break;
+	case RM8_CARDNET_CANCEL_PICK: rm8CardsCancelPick(); break;
+	case RM8_CARDNET_CANCEL_DLG:
+		for(const char *n : {"dice", "rob", "chsplayer"}){
+			Rm8Ui *u = rm8UiLoad(n, RM8UI_DIALOG);
+			if(u && rm8UiVisible(u) && g_dlgSeat >= 0 && rm8TurnState(g_dlgSeat) == 7){ rm8UiShow(u, false); rm8TurnModalResult(g_dlgSeat, 0); break; }
+		}
+		break;
+	default: break;
+	}
 }
 
 namespace {
@@ -1348,7 +1887,8 @@ void touchHold()
 	if(g_main && rm8UiPressIsTouch()) for(int k = 0; k < 8; k++) if(rm8UiHot(g_main, 31 + k)){ h = k; break; }
 	if(h < 0){ slot = -1; return; }
 	if(h != slot){ slot = h; t0 = std::chrono::steady_clock::now(); return; }
-	if(std::chrono::duration<float>(std::chrono::steady_clock::now() - t0).count() >= 1.4f){ slot = -1; g_hover = h; openThrow(h); }
+	if(std::chrono::duration<float>(std::chrono::steady_clock::now() - t0).count() >= 1.4f){ slot = -1; g_hover = h; if(!netTake(RM8_CARDNET_OPEN_THROW, h)) openThrow(h); }
+
 }
 
 // [A] test driver RM8_CARD_PTR="step;step;...": the steps go through the real pointer functions (rm8UiPointerMove / Down / Up, then the board tap of rm8SkipTap =
@@ -1425,6 +1965,17 @@ void driver(float dt)
 			}
 		}
 	}
+	else if((st.kind == "candbld" || st.kind == "candnode" || st.kind == "hovbld") && rm8CardsPicking()){	// [R] test: tap the Nth building candidate (candbld) / road node candidate (candnode) that is on the screen; hovbld: only move the pointer over it (the blast preview)
+		float W = g_cam && g_cam->frameBuffer ? (float)g_cam->frameBuffer->width : 1024.0f, H = g_cam && g_cam->frameBuffer ? (float)g_cam->frameBuffer->height : 768.0f;
+		std::vector<Cand> vis;
+		for(const Cand &k : candidates(g_pick.kind, g_pick.flags, g_pick.seat)){ float px, py; if((k.plot >= 0) == (st.kind != "candnode") && project(k.wp, px, py) && px > 20 && px < W - 20 && py > 120 && py < H - 160) vis.push_back(k); }
+		if(!vis.empty()){
+			const Cand &k = vis[std::min<size_t>(st.n, vis.size() - 1)]; project(k.wp, x, y);
+			if(st.kind != "hovbld") rm8Log("cards: ptr tap on the %s candidate (node %d, plot %d: owner %d level %d) at %.0f,%.0f", st.kind == "candnode" ? "node" : "building", k.idx, k.plot, k.plot >= 0 ? rm8GameTerraOwner(k.plot) : -1, k.plot >= 0 ? rm8GameTerraLevel(k.plot) : 0, x, y);
+			if(st.kind == "hovbld") rm8UiPointerMove(x, y);	// the pointer follows the candidate every frame (the camera may still move): the step never finishes while the pick is open
+			else{ tapAt(x, y, false); done = true; }
+		}
+	}
 	else if(st.kind == "cand" && rm8CardsPicking()){
 		std::vector<Cand> c = candidates(g_pick.kind, g_pick.flags, g_pick.seat), vis;	// the visible ones (a finger can only tap what is on the screen)
 		float W = g_cam && g_cam->frameBuffer ? (float)g_cam->frameBuffer->width : 1024.0f, H = g_cam && g_cam->frameBuffer ? (float)g_cam->frameBuffer->height : 768.0f;
@@ -1440,8 +1991,33 @@ void driver(float dt)
 }
 }	// namespace
 
+// [V] the bubble of a role is a sprite model: CPlayerTag__InitializeEventDisplay @0x48e5f0 -> Sprite_CreateModel @0x47c230 loads the article 0x17E3 = 6115 (Eff_11.dff, one camera facing quad with the
+// texture Eff_014) rotated to (camera yaw - 180) at creation; CPlayerTag_UpdateSpriteTransform @0x48e700 keeps it at the role, 15 units toward the camera. It is shown while the counter (+0x28C) runs
+// (the card 33 bubble) and, [R] rules_plus, during the post-hospital bubble. One effect object per seat, created when the bubble starts, moved every frame, removed when it ends.
+static void bubbleFxUpdate()
+{
+	static std::map<int, int> fx;
+	if(!rm8RulesOn() || !g_cam || !g_cam->getFrame()) return;	// [R] only while the house rules are on: the port without them keeps the original behaviour (and its effect handles / logs) byte for byte
+	for(int s = 0; s < rm8TurnRoleCount(); s++){
+		bool want = (X(s).bubble > 0 || rm8CardsPlusImmune(s)) && rm8TurnStatus(s) < 3;
+		auto it = fx.find(s); bool have = it != fx.end() && rm8FxActive(it->second);
+		float p[3];
+		if(!want || !rm8RolesGetPos(s, p)){ if(have) rm8FxStop(it->second); if(it != fx.end()) fx.erase(it); continue; }
+		const Matrix *m = g_cam->getFrame()->getLTM();
+		float fx_ = m->at.x, fz = m->at.z, l = sqrtf(fx_ * fx_ + fz * fz);
+		if(l > 1e-4f){ fx_ /= l; fz /= l; }
+		p[0] -= fx_ * 15.0f; p[2] -= fz * 15.0f;	// [V] the role's position pushed 15 units toward the camera (the sprite scale is x 1.3, y 1.6 of the role's scale; [A] one uniform 1.45 here)
+		if(have){ rm8FxMove(it->second, p); continue; }
+		float yaw = l > 1e-4f ? atan2f(-m->at.z, -m->at.x) * 180.0f / 3.14159265f : 135.0f; if(yaw < 0) yaw += 360.0f;
+		int h = rm8FxPlay(6115, p, yaw - 180.0f, -1, false, 0, 1.45f, 0, false);
+		if(h){ rm8FxSetOverlay(h); fx[s] = h; }	// [A] drawn over the role (translucent) after a z clear: the original draws the sprite without z writes (Mesh_DrawNoZWrite @0x47c3b0); as a scenery article it would hide the role
+		else if(it != fx.end()) fx.erase(it);
+	}
+}
+
 void rm8CardsUpdate(float dt)
 {
+	bubbleFxUpdate();
 	if(g_snapSeat >= 0 && g_snapT >= 0){	// [A] RM8_DEBUG_CARDS: the state after a card was used (a human back at the dice, or 8 s later)
 		g_snapT += dt;
 		if((rm8TurnHuman(g_snapSeat) && rm8TurnState(g_snapSeat) == 6 && g_snapT > 1.0f) || g_snapT > 8.0f){ snapshot("after"); g_snapSeat = -1; g_snapT = -1; }

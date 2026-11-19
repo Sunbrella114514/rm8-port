@@ -22,7 +22,7 @@ namespace {
 
 std::vector<int> g_avail;			// free numbers (+0x44..+0x48)
 std::vector<int> g_held[8];			// numbers per seat (+4 + seat * 0x10)
-long g_pool = 5000;				// +0x50
+int32_t g_pool = 5000;				// [N] +0x50
 bool g_init = false;
 
 void ensure(){ if(g_init) return; g_init = true; g_avail.clear(); for(int i = 1; i <= 32; i++) g_avail.push_back(i); for(auto &h : g_held) h.clear(); g_pool = 5000; }
@@ -135,7 +135,7 @@ struct LetouTask : Task {
 		goodbye(1.8f, true); state = 3;
 		rm8UiSetTextByName(ui, "bonus", "$" + std::to_string(g_pool));
 		paintCells(ui, false);
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: lottery: seat %d takes number %d (pool %ld)", seat, id, g_pool);
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: lottery: seat %d takes number %d (pool %d)", seat, id, g_pool);
 	}
 	void click(const std::string &n) override { if(n == "Quit") tap(0); else { int k = atoi(n.c_str()); if(k >= 1 && k <= 32) tap(k); } }
 	bool update(float dt) override
@@ -222,13 +222,13 @@ struct DrawTask : Task {
 		if(w < 0){
 			state = 5;
 			say(4810); npcPlay(npc, 8);
-			g_pool += 5000L * rm8GamePI();
+			g_pool += 5000 * rm8GamePI();	// [N] int32_t
 		}else{
 			state = 4;
 			say(plainFmt(4808, rm8TurnName(w)));
 			rm8GameAddMoney(w, g_pool, false);
-			if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: lottery draw: number %d, winner seat %d gets %ld", number, w, g_pool);
-			g_pool = 5000L * rm8GamePI();
+			if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: lottery draw: number %d, winner seat %d gets %d", number, w, g_pool);
+			g_pool = 5000 * rm8GamePI();	// [N] int32_t
 			cleared = true;
 		}
 		rm8UiSetTextByName(ui, "Bonus", "$" + std::to_string(g_pool));
@@ -307,7 +307,7 @@ bool aiLottery(int seat)
 // [V] Game_TriggerHolidayEvent @0x4a66b0: when somebody bought a number (fewer than 32 free) the draw (event 0x62) runs for the current role
 bool lotteryDrawDue(){ ensure(); return g_avail.size() < 32; }
 // [V] News_EventLoseMoney @0x4b53d0 / News_EventBankHack @0x4b5570 add the fine to the prize pool (*(DAT_006403d0 + 0x50) += amount), news.cpp
-void lotteryPoolAdd(long v){ ensure(); g_pool += v; }
+void lotteryPoolAdd(int32_t v){ ensure(); g_pool = rm8Add32(g_pool, v); }	// [N] int32_t; fines accumulate until a draw is won: the 32-bit wrap, explicit
 
 }	// namespace ev
 

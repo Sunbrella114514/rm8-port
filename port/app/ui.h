@@ -63,6 +63,8 @@ bool rm8UiPressed(Rm8Ui *u, int id);		// [A] widget `id` is under a pointer pres
 bool rm8UiSetRootPos(Rm8Ui *u, float px, float py);	// screen pixels; dialog-mode UIs
 void rm8UiPointerMove(float x, float y);
 void rm8UiRender(rw::Camera *cam);	// all visible UIs, after the 3D scene
+void rm8UiRenderLate(rw::Camera *cam);	// [N] the UIs marked late (rm8UiSetLate): on top of the menu's 3D dolls
+void rm8UiSetLate(Rm8Ui *u, bool late);
 // string.bin text (UTF-8); "" if missing
 const std::string &rm8Str(int id);
 // the game's text conventions: '\' line break, '^' space ([A]), printf-style %s/%d already applied by the caller
@@ -101,3 +103,16 @@ void rm8UiOverlayBegin(rw::Camera *cam);
 void rm8UiOverlayPic(int uvlId, float cx, float cy, float w, float h, float rotDeg, unsigned argb);
 void rm8UiOverlayRect(float x, float y, float w, float h, unsigned argb);
 void rm8UiOverlayEnd();
+
+// ---- [N] netplay (net.cpp, docs/netplay.md section 3.2). Unset hooks = single player: nothing changes.
+struct Rm8UiNetHooks {
+	bool (*click)(Rm8Ui *u, int key, int id, const std::string &name) = nullptr;	// a local click on a widget of `u`: true = netplay took it (sent as a command / not the player's turn)
+	bool (*netHover)(Rm8Ui *u) = nullptr;	// true = rm8UiHot / rm8UiHotN of this UI report the replicated hover (rm8UiNetApplyHover), not the local pointer
+};
+Rm8UiNetHooks &rm8UiNetHooks();
+Rm8Ui *rm8UiFind(const std::string &name);			// a loaded UI by name (nullptr: never loaded)
+bool rm8UiNetApplyClick(const std::string &ui, int key);	// a replicated click: the widget's click handler (key: rm8UiNetLocalHot / the click hook)
+void rm8UiNetApplyHover(const std::string &ui, int key);	// the replicated hover (key -1 / ui "" = none)
+bool rm8UiNetLocalHot(std::string &ui, int &key);		// the local pointer's pressed / hovered widget on a shown UI
+struct Rm8UiButtonInfo { std::string ui, name, type; int key = -1, id = 0; float x = 0, y = 0; };
+void rm8UiListButtons(std::vector<Rm8UiButtonInfo> &out);	// test driver: the widgets a tap could click now (screen centres)

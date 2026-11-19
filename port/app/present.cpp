@@ -436,12 +436,12 @@ bool rm8PresentMessage(int seat, int cmd, int a, int b)
 // ======================================================================== triggers
 // [V] Role_SubMoney(.., emote) @0x489ac0: 70 %: class by amount (PI * 5000 -> 0xB, PI * 1000 -> 0xA, else 0xC) after a 30 frame wait;
 // Role_AddMoney(.., emote) @0x489b80: 70 %: >= 5000 -> 7, >= 1000 -> 8, else 9
-void rm8PresentMoney(int seat, long amount, bool gain)
+void rm8PresentMoney(int seat, int32_t amount, bool gain)	// [N] int32_t
 {
 	if(!rm8PresentChance70()) return;
 	if(gain) rm8RoleSayAt(seat, 0, amount >= 5000 ? 7 : amount >= 1000 ? 8 : 9);
 	else{
-		long pi = rm8GamePI();
+		int32_t pi = rm8GamePI();	// [N] int32_t
 		int cls = amount >= pi * 5000 ? 0xB : amount >= pi * 1000 ? 0xA : 0xC;
 		rm8TurnEnqueueAt(seat, 0, 0x65, 30, 0); rm8RoleSayAt(seat, 1, cls);
 	}
@@ -449,7 +449,7 @@ void rm8PresentMoney(int seat, long amount, bool gain)
 
 // [V] Role_TransferRentToOwner @0x487f20 (no frame-up card; sample 0x7B is boardfx.cpp's): the payer's Role_SubMoney emote with 60 %, the owner's Role_AddMoney
 // emote with the other 40 %; when the owner emotes the payer hands control to the owner (0x2E) and the owner hands it back
-void rm8PresentRent(int payer, int owner, long rent)
+void rm8PresentRent(int payer, int owner, int32_t rent)	// [N] int32_t
 {
 	bool pe = rm8GameRand() % 100 < 0x3c;
 	if(pe) rm8PresentMoney(payer, rent, false);
@@ -463,10 +463,10 @@ void rm8PresentRent(int payer, int owner, long rent)
 }
 
 // [V] Role_CheckRentExempt @0x486580: owner in a special status -> 70 % emote 0xD / 0xE / 0xF by the rent
-void rm8PresentRentExempt(int seat, long rent)
+void rm8PresentRentExempt(int seat, int32_t rent)	// [N] int32_t
 {
 	if(!rm8PresentChance70()) return;
-	long pi = rm8GamePI();
+	int32_t pi = rm8GamePI();	// [N] int32_t
 	rm8RoleSay(seat, rent >= pi * 5000 ? 0xF : rent >= pi * 1000 ? 0xE : 0xD);
 }
 
@@ -478,7 +478,7 @@ static int streetCount(int street, int owner)	// TerraMgr_CountTerraByStreetOwne
 }
 
 // [V] Role_BuyLandConfirmed @0x487030 (price already charged, owner already set; no god possession)
-void rm8PresentBuy(int seat, int terra, long price)
+void rm8PresentBuy(int seat, int terra, int32_t price)	// [N] int32_t
 {
 	int cls = -1;
 	if(price < 1){ if(rm8PresentChance70()) cls = 1; }

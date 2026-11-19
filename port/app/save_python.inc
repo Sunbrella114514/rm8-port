@@ -52,7 +52,7 @@ void rm8SavePySeed(unsigned seed)
 {
 	if(!g_ready) return;
 	PyObject *m = PyImport_ImportModule((char*)"random");
-	PyObject *res = m ? PyObject_CallMethod(m, (char*)"seed", (char*)"(l)", (long)seed) : nullptr;
+	PyObject *res = m ? PyObject_CallMethod(m, (char*)"seed", (char*)"(l)", (long)(int32_t)seed) : nullptr;	// [N] the seed as the 32-bit long of Windows on every platform (random.seed takes abs(): a seed >= 2^31 seeded differently on Android)
 	if(!res) logError("random.seed");
 	Py_XDECREF(res); Py_XDECREF(m);
 }

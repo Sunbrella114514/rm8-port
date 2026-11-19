@@ -16,6 +16,8 @@
 #include "balance.h"
 #include "story.h"
 #include "save.h"
+#include "rules_plus.h"
+#include "net.h"
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -28,22 +30,22 @@ using namespace rw;
 
 namespace {
 
-const long RENT_TABLE[6] = {500, 1000, 2500, 5000, 8000, 12500};	// [V] 0x5e65b0
-const long MONEY_MAX = 999999999;
+const int32_t RENT_TABLE[6] = {500, 1000, 2500, 5000, 8000, 12500};	// [N] [V] 0x5e65b0
+const int32_t MONEY_MAX = 999999999;
 
 struct GTerra {
 	int type = 1, street = 0, level = 0, owner = -1, pct = 100, build = 0;	// [V] Terra +0x3C lo/hi, +0x44, +0x4C, +0x48
 	float pos[3] = {0, 0, 0}, yaw = 0;
 	Clump *model = nullptr; int modelArt = 0;	// the plot's model and its art id (boardfx.cpp animates it)
 };
-struct GRole { long cash = 0, deposit = 0, points = 50; int shape = 0, invisible = 0; bool bankruptChecked = false; long rentIn = 0, rentOut = 0; int badDays = 0; };	// rentOut = +0x33C (the rent paid), badDays = +0x340 (turn starts in sleep / hotel / hospital / prison / sleepwalk; the balance screen)
+struct GRole { int32_t cash = 0, deposit = 0, points = 50; int shape = 0, invisible = 0; bool bankruptChecked = false; int32_t rentIn = 0, rentOut = 0; int badDays = 0; };	// [N] rentOut = +0x33C (the rent paid), badDays = +0x340 (turn starts in sleep / hotel / hospital / prison / sleepwalk; the balance screen)
 
 Rm8Scene *g_s = nullptr;
 std::vector<GTerra> g_t;
 std::vector<GRole> g_r;
 struct StreetFx { int closeDays = 0, flowDays = 0; double mult = 1.0; };	// [V] street record +0x108 / +0x110 / +0x10C (rules_land.md 1.3)
 std::map<int, StreetFx> g_stFx;	// by street id, for the cards (cards.cpp)
-long g_PI = 1, g_base = 100000;
+int32_t g_PI = 1, g_base = 100000;	// [N] int32_t
 int g_days = 0;
 bool g_over = false;	// [V] g_GameState+0x48 != 1 ([A] the end screens are not in the port yet)
 int g_year = 2026, g_month = 1, g_mday = 1, g_wday = 0;
@@ -59,21 +61,21 @@ int rnd(){ g_seed = g_seed * 214013u + 2531011u; return (g_seed >> 16) & 0x7fff;
 
 bool validT(int t){ return t >= 0 && t < (int)g_t.size(); }
 bool validR(int r){ return r >= 0 && r < (int)g_r.size(); }
-long streetPrice(int id){ auto it = g_s->streetPrice.find(id); return it == g_s->streetPrice.end() ? 100 : it->second; }
+int32_t streetPrice(int id){ auto it = g_s->streetPrice.find(id); return it == g_s->streetPrice.end() ? 100 : it->second; }	// [N] int32_t
 
 // ---- price functions [V] docs/rules_land.md 1.8
-long buildUnitCost(const GTerra &t){ return (t.type == 1 ? 250 : 500) * g_PI; }			// @0x4efd50
-long calcPrice(const GTerra &t, bool mulPI)							// @0x4efc80
+int32_t buildUnitCost(const GTerra &t){ return (t.type == 1 ? 250 : 500) * g_PI; }			// [N] @0x4efd50
+int32_t calcPrice(const GTerra &t, bool mulPI)							// @0x4efc80
 {
-	long base = ((t.type == 1 ? 3000L : 5000L) * t.pct * streetPrice(t.street)) / 10000;
-	long v = buildUnitCost(t) * t.level + base;
+	int32_t base = rm8Mul32(rm8Mul32(t.type == 1 ? 3000 : 5000, t.pct), streetPrice(t.street)) / 10000;	// [N] int32_t; the product wraps like the original's imul (only a percent grown by many news reaches 2^31)
+	int32_t v = buildUnitCost(t) * t.level + base;
 	return mulPI ? v * g_PI : v;
 }
-long calcRent(int ti, bool chain)								// @0x4efda0
+int32_t calcRent(int ti, bool chain)								// [N] @0x4efda0
 {
 	const GTerra &t = g_t[ti];
 	if(t.type != 1) return 0;
-	long p = streetPrice(t.street), r = RENT_TABLE[t.level] * p / 100;
+	int32_t p = streetPrice(t.street), r = RENT_TABLE[t.level] * p / 100;	// [N] int32_t
 	if(chain) for(int u = 0; u < (int)g_t.size(); u++){
 		const GTerra &o = g_t[u];
 		if(u != ti && o.type == 1 && o.street == t.street && o.owner == t.owner) r += RENT_TABLE[o.level] * p / 100;
@@ -82,13 +84,13 @@ long calcRent(int ti, bool chain)								// @0x4efda0
 }
 
 // ---- money [V] SFLB_MoneyAdd @0x47e640, Bank_WithdrawMoney @0x47e720
-void addMoney(int r, long v, bool deposit){ long &a = deposit ? g_r[r].deposit : g_r[r].cash; a = std::min(MONEY_MAX, a + v); }
-void subMoney(int r, long v, bool depositFirst)
+void addMoney(int r, int32_t v, bool deposit){ int32_t &a = deposit ? g_r[r].deposit : g_r[r].cash; a = std::min(MONEY_MAX, rm8Add32(a, v)); }	// [N] int32_t; a + v wraps like the original's add (v > 1147483648 only)
+void subMoney(int r, int32_t v, bool depositFirst)
 {
 	GRole &g = g_r[r];
-	long &a = depositFirst ? g.deposit : g.cash, &b = depositFirst ? g.cash : g.deposit;
+	int32_t &a = depositFirst ? g.deposit : g.cash, &b = depositFirst ? g.cash : g.deposit;	// [N] int32_t
 	a -= v;
-	if(a < 0){ b = std::max(0L, b + a); a = 0; }
+	if(a < 0){ b = std::max(0, b + a); a = 0; }	// [N] int32_t
 }
 
 // ---- models [V] Land_OnEnter @0x4ef580: building.bin art per (type, level); owned empty plot: sign art 1100 + role id
@@ -130,7 +132,7 @@ void setOwner(int ti, int r)
 //   owner status 7 (bankrupt)                                -> 1, no text, no emote
 //   no owner role (not reachable in the port)                -> emote only
 // callers: Role_ProcessArriveLand @0x4868e0 (residential, rent > 0, not invisible) and Role_OnArriveCommercialBuilding @0x486260 (chain store / hotel, rent argument 0), humans and AI alike
-bool rentExempt(int me, int ti, long rent)
+bool rentExempt(int me, int ti, int32_t rent)	// [N] int32_t
 {
 	{ auto f = g_stFx.find(g_t[ti].street); if(f != g_stFx.end() && f->second.closeDays > 0){
 		rm8TurnEnqueue(me, 0x1B, pushText(rm8StrFmt(10, streetName(g_t[ti].street).c_str())), 0);
@@ -146,9 +148,31 @@ bool rentExempt(int me, int ti, long rent)
 	return true;
 }
 
+// [R] rules_plus B3: paying rent to a role is an attack on the payer: weight rent / hateRentUnit x PI (at most hateRentMax), nothing below hateRentMin x PI
+void hateRent(int payer, int owner, int32_t rent)	// [N] int32_t
+{
+	if(!rm8RulesOn()) return;
+	const Rm8PlusTuning &t = rm8PlusTuning();
+	if(rent < t.hateRentMin * g_PI) return;
+	rm8HateNote(payer, owner, std::min(t.hateRentMax, (float)rent / (float)(t.hateRentUnit * g_PI)), "rent paid");
+}
+
 // [V] AI_AskTBuy / AI_AskTBuild: the original Python callback with the plot handle; [A] if Python is not
 // available the answer of the shipped scripts without possession (1) is used
-bool askAI(int me, const char *fn, int ti){ long res = 0; if(rm8PyCallAI(rm8TurnAiScript(me), fn, ti + 1, res)) return res != 0; return true; }
+bool askAI(int me, const char *fn, int ti)
+{
+	int32_t res = 0;	// [N] int32_t
+	bool yes = rm8PyCallAI(rm8TurnAiScript(me), fn, ti + 1, res) ? res != 0 : true;
+	// [R] rules_plus B1: before the loan is due the AI keeps the repayment reserve instead of buying / building (the script is still asked first; never a story-scripted loan)
+	if(yes && rm8RulesOn() && validT(ti) && rm8EventLoan(me) > 0){
+		int32_t price = !strcmp(fn, "TBuy") ? calcPrice(g_t[ti], true) : buildUnitCost(g_t[ti]), liquid = g_r[me].cash + g_r[me].deposit;	// [N] int32_t
+		if(rm8RulesReserveVeto(me, liquid, price, rm8EventLoan(me), rm8EventLoanDaysLeft(me))){
+			rm8Log("rules+: seat %d (%s) keeps the repayment reserve: no %s of plot %d (price %d, liquid %d, loan %d due in %d days)", me, rm8TurnName(me), fn, ti, price, liquid, rm8EventLoan(me), rm8EventLoanDaysLeft(me));
+			return false;
+		}
+	}
+	return yes;
+}
 
 // [V] 0x11 Role_ProcessArriveLand @0x4868e0
 void arriveLand(int me, int node)
@@ -159,7 +183,7 @@ void arriveLand(int me, int node)
 	GTerra &t = g_t[ti];
 	int s = g_r[me].shape;
 	if(t.owner < 0){	// A. unowned: buy? (not while possessed by 土地公 / 糊塗神; the chain goes on to 0x22 either way)
-		long price = calcPrice(t, true);
+		int32_t price = calcPrice(t, true);	// [N] int32_t
 		if(s == 5 || s == 6){}
 		else if(g_r[me].cash < price) rm8TurnEnqueue(me, 0x1B, pushText(rm8Str(2)), 0);	// [V] str2 (cash only)
 		else if(rm8TurnHuman(me)){	// [V] 1(text, 0x80 okcancel) -> 0x1C (hide) -> 9(t, result)
@@ -167,8 +191,8 @@ void arriveLand(int me, int node)
 			rm8TurnEnqueue(me, 1, pushText(txt), 0x80); rm8TurnEnqueue(me, 0x1C, 0, 0); rm8TurnEnqueue(me, 9, ti, (int)0x80000000);
 		}else if(askAI(me, "TBuy", ti)) rm8TurnEnqueue(me, 9, ti, 1);
 	}else if(t.owner == me){	// B. own: build? (not while possessed by 糊塗神 or at level 5)
-		if(getenv("RM8_DEBUG_RULES")) rm8Log("rules: seat %d on own plot %d (level %d, cash %ld)", me, ti, t.level, g_r[me].cash);
-		long cost = buildUnitCost(t);
+		if(getenv("RM8_DEBUG_RULES")) rm8Log("rules: seat %d on own plot %d (level %d, cash %d)", me, ti, t.level, g_r[me].cash);
+		int32_t cost = buildUnitCost(t);	// [N] int32_t
 		if(s == 6 || t.level >= 5){}
 		else if(g_r[me].cash < cost) rm8TurnEnqueue(me, 0x1B, pushText(rm8Str(2)), 0);
 		else if(rm8TurnHuman(me)){	// [V] str3 (empty residential), str5 + business dialog (empty commercial), str4 (upgrade)
@@ -180,7 +204,7 @@ void arriveLand(int me, int node)
 		}else if(askAI(me, "TBuild", ti)) rm8TurnEnqueue(me, 0xB, ti, 1);
 	}else{	// C. someone else's residential plot: rent
 		if(t.type == 1 && g_r[me].invisible < 1){
-			long r = calcRent(ti, true);
+			int32_t r = calcRent(ti, true);	// [N] int32_t
 			r = rm8EventWonderRent(me, t.owner, r);	// [V] Wonder_CheckConstruction(1): the land wonder +-20 %
 			if(r > 0 && !rentExempt(me, ti, r)){	// [V] Role_CheckRentExempt @0x486580 (rent > 0 only): queues its own info box / emote when it exempts
 				std::string txt = t.level > 0 ? rm8StrFmt(7, streetName(t.street).c_str(), t.level, buildingName(1).c_str(), rm8TurnName(t.owner), (int)r)
@@ -255,11 +279,13 @@ void rm8GameNewGame(Rm8Scene &s, unsigned seed)
 	g_r.assign(rm8TurnRoleCount(), GRole());
 	for(GRole &r : g_r){ r.cash = g_opts.cash / 2; r.deposit = g_opts.cash / 2; r.points = std::min(g_opts.tickets, 9999); }
 	for(int k = 0; k < (int)g_r.size(); k++) rm8TurnSetDiceMax(k, std::max(1, std::min(3, g_opts.vehicle + 1)));	// [V] vehicle = clamp(setup+0x14 + 1, 1, 3)
-	if(const char *sc = getenv("RM8_START_CASH")){ int k = -1; long v = 0; if(sscanf(sc, "%d,%ld", &k, &v) == 2 && validR(k)){ g_r[k].cash = v; g_r[k].deposit = 0; } }	// test hook "seat,cash" (bankruptcy)
+	if(const char *sc = getenv("RM8_START_CASH")){ int k = -1; int32_t v = 0; if(sscanf(sc, "%d,%d", &k, &v) == 2 && validR(k)){ g_r[k].cash = v; g_r[k].deposit = 0; } }	// [N] test hook "seat,cash" (bankruptcy)
 	g_PI = 1; g_base = std::max(1, g_opts.cash); g_days = 0;	// [V] price base = mean (cash + deposit) of the roles = the setup money (Game_CalcAvgPlayerWealth @0x4a6b30)
 	rm8StockNewGame((int)g_r.size());	// stock.cpp: the listed stocks and their first 300 days (Stock_LoadFromINI @0x4b8e20)
 	time_t now = time(nullptr); struct tm *lt = localtime(&now);
 	if(lt){ g_year = lt->tm_year + 1900; g_month = lt->tm_mon + 1; g_mday = lt->tm_mday; g_wday = lt->tm_wday; }	// [V] first weekday from the system (0 = Sunday)
+	{ int y, m, d, w; if(rm8NetStartDate(y, m, d, w)){ g_year = y; g_month = m; g_mday = d; g_wday = w; } }	// [N] a netplay game: the host's calendar day on every device
+
 	if(const char *sd = getenv("RM8_START_DAY")){	// [A] test hook "<day>[,<weekday 1..7>]": the first real round (after the day-0 introduction round) is that day of the game, on that weekday (story events of day > 9 / Wednesdays)
 		int n = atoi(sd), w = 0; if(const char *cm = strchr(sd, ',')) w = atoi(cm + 1);
 		if(n > 1){ g_days = n - 1; if(w >= 1 && w <= 7) g_wday = w == 1 ? 7 : w - 1; }	// the wrap after the introduction round advances day and weekday once
@@ -297,19 +323,19 @@ bool rm8GameMessage(int me, int cmd, int a, int b)
 	case 0x11: arriveLand(me, a); return true;
 	case 9: {	// [V] Role_BuyLandConfirmed @0x487030 (no possession: plain purchase)
 		if(!b || (unsigned)b == 0x80000000u || !validT(a)) return true;
-		long price = calcPrice(g_t[a], true);
+		int32_t price = calcPrice(g_t[a], true);	// [N] int32_t
 		if(g_r[me].shape == 3){	// [V] Role_BuyLandConfirmed @0x487030: 衰神 - the price is paid, no land: str412, 70 %: speak 4 / 5
 			subMoney(me, price, false);
 			rm8TurnEnqueueAt(me, 0, 0x1B, pushText(rm8Str(412)), 0);
 			if(rm8PresentChance70()) rm8RoleSayAt(me, 1, 4 + (rnd() & 1));
-			rm8Log("rules: seat %d (衰神) pays %ld for plot %d and gets nothing", me, price, a);
+			rm8Log("rules: seat %d (衰神) pays %d for plot %d and gets nothing", me, price, a);
 			return true;
 		}
 		setOwner(a, me);
 		rm8BoardFxLandTaken();	// [V] Role_TakeLandOwnership @0x487250: sample 1, humans and computers alike
 		if(g_r[me].shape == 4) price = 0;	// [V] 福神: free
 		if(price > 0) subMoney(me, price, false);
-		rm8Log("rules: seat %d buys plot %d for %ld", me, a, price);
+		rm8Log("rules: seat %d buys plot %d for %d", me, a, price);
 		rm8PresentBuy(me, a, price);
 		if(g_r[me].shape == 4) rm8TurnEnqueueAt(me, 0, 0x1B, pushText(rm8Str(414)), 0);	// str414 at the front, the emote behind it
 		return true; }
@@ -334,7 +360,7 @@ bool rm8GameMessage(int me, int cmd, int a, int b)
 		rm8PresentBuild(me, a, nl);
 		return true; }
 	case 0x1F: {	// [V] Role_PayToll @0x487c80: 財神 pays nothing (str407), 窮神 double (str409), the owner's road bully (+0x1C0) redirects the rent
-		long r = a; int owner = b, pos = 0, sh = g_r[me].shape;
+		int32_t r = a; int owner = b, pos = 0, sh = g_r[me].shape;	// [N] int32_t
 		if(sh == 1){ r = 0; rm8TurnEnqueueAt(me, 0, 0x1B, pushText(rm8Str(407)), 0); pos = 1; }
 		else if(sh == 2){ r = a * 2; rm8TurnEnqueueAt(me, 0, 0x1B, pushText(rm8Str(409)), 0); pos = 1; }
 		else if(rm8CardsHasBodyguard(me)){ r = 0; rm8TurnEnqueueAt(me, 0, 0x1B, pushText(rm8Str(567)), 0); pos = 1; }	// [V] vf+0x64 (莎拉 with her bodyguard): str567, nothing is paid
@@ -344,10 +370,11 @@ bool rm8GameMessage(int me, int cmd, int a, int b)
 		}
 		int ben = validR(owner) ? rm8NpcBully(owner) : -1;
 		if(ben >= 0 && validR(ben) && rm8TurnStatus(ben) != 7){	// [V] Role_TransferRentRoadblock @0x488100: me pays (cash first), the beneficiary gets it on the deposit
-			subMoney(me, r, false); g_r[me].rentOut += r;
+			subMoney(me, r, false); g_r[me].rentOut = rm8Add32(g_r[me].rentOut, r);	// [N] the totals of a long game wrap like the original's 32-bit add
 			rm8TurnEnqueueAt(me, pos, 0x1B, pushText(rm8StrFmt(566, rm8TurnName(ben))), 0);	// str566 "<str#566>，<str#566>%s"
-			addMoney(ben, r, true); g_r[ben].rentIn += r;
-			rm8Log("rules: seat %d pays rent %ld to seat %d (road bully of seat %d)", me, r, ben, owner);
+			addMoney(ben, r, true); g_r[ben].rentIn = rm8Add32(g_r[ben].rentIn, r);
+			rm8Log("rules: seat %d pays rent %d to seat %d (road bully of seat %d)", me, r, ben, owner);
+			hateRent(me, ben, r);
 			if(rnd() % 100 < 60 && rm8TurnStatus(owner) == 0){
 				rm8TurnEnqueueAt(me, pos + 1, 0x2e, owner + 1, 0); rm8RoleSay(owner, 0x57); rm8TurnEnqueue(owner, 0x2e, me + 1, 0);
 			}
@@ -363,12 +390,13 @@ bool rm8GameMessage(int me, int cmd, int a, int b)
 		if(b) rm8PresentLandTaken(me, prev);
 		return true; }
 	case 0x20: {	// [V] Role_TransferRentToOwner @0x487f20 (no frame-up card yet)
-		long r = a; int owner = b;
+		int32_t r = a; int owner = b;	// [N] int32_t
 		if(!validR(owner)) return true;
-		subMoney(me, r, false); g_r[me].rentOut += r;
+		subMoney(me, r, false); g_r[me].rentOut = rm8Add32(g_r[me].rentOut, r);	// [N] 32-bit wrap like the original
 		rm8BoardFxRentPaid();	// [V] sample 0x7B right after Role_SubMoney (@0x487f20)
-		addMoney(owner, r, true); g_r[owner].rentIn += r;	// [V] the owner receives the full amount into the deposit
-		rm8Log("rules: seat %d pays rent %ld to seat %d", me, r, owner);
+		addMoney(owner, r, true); g_r[owner].rentIn = rm8Add32(g_r[owner].rentIn, r);	// [V] the owner receives the full amount into the deposit
+		rm8Log("rules: seat %d pays rent %d to seat %d", me, r, owner);
+		hateRent(me, owner, r);
 		rm8PresentRent(me, owner, r);
 		return true; }
 	case 0x7F: rm8BoardFxBankruptcy(me); return true;	// [V] CPlayerTag__OnMovieDrama @0x492F30
@@ -423,25 +451,26 @@ void rm8GameOnNewRound()
 	int ml = ML[g_month] + (g_month == 2 && ((g_year % 4 == 0 && g_year % 100 != 0) || g_year % 400 == 0));
 	if(++g_mday > ml){ g_mday = 1; if(++g_month > 12){ g_month = 1; g_year++; } }
 	g_wday = g_wday % 7 + 1;	// [V] weekdays cycle 1..7 (7 = Sunday)
+	rm8HateNewDay();	// [R] rules_plus B3: the hate scores decay (no-op with the house rules off)
 	for(auto &kv : g_stFx){	// [V] Terra_UpdateHeightAll @0x42d650: close / flow days - 1; the flow ends: price = ftol(price / multiplier)
 		StreetFx &f = kv.second;
 		if(f.closeDays > 0) f.closeDays--;
 		if(f.flowDays > 0 && --f.flowDays == 0){ int &p = g_s->streetPrice[kv.first]; p = (int)(p / f.mult); f.mult = 1.0; }
 	}
 	if(g_PI < 99){	// [V] Game_UpdatePriceIndex @0x4a6a00 (stocks in the net worth; no loans yet)
-		long sum = 0; int n = 0;
+		int32_t sum = 0; int n = 0;	// [N] int32_t
 		for(int r = 0; r < (int)g_r.size(); r++){
 			if(rm8TurnStatus(r) == 7) continue;
-			long w = g_r[r].cash + g_r[r].deposit + rm8StockValue(r);
-			for(GTerra &t : g_t) if(t.owner == r) w += calcPrice(t, false);
-			sum += w; n++;
+			int32_t w = rm8Add32(rm8Add32(g_r[r].cash, g_r[r].deposit), rm8StockValue(r));	// [N] int32_t; the net worth sums wrap like the original's 32-bit adds (2 x 999999999 + stocks can pass 2^31)
+			for(GTerra &t : g_t) if(t.owner == r) w = rm8Add32(w, calcPrice(t, false));
+			sum = rm8Add32(sum, w); n++;
 		}
-		if(n){ long p = (sum / n) / g_base; if(p > g_PI) g_PI = std::min(p, 99L); }
+		if(n){ int32_t p = (sum / n) / g_base; if(p > g_PI) g_PI = std::min(p, 99); }	// [N] int32_t
 	}
 	if(g_mday == 1) rm8NpcMonthStart();	// [V] Game_OnTurnStart @0x4a3b50: day 1 of a month -> Event_OnNpcEnable @0x49d9c0 (the gods and a board character come back)
 	rm8EventInstituteTick();	// [V] TurnStart_UpdateTerrain @0x4f11f0 (Game_OnTurnStart): Institute_CheckCompletion for every plot
 	rm8StockNewDay(g_wday);	// [V] Game_OnTurnStart @0x4a3b50: after the price index, on weekdays < 6 Stock_CheckUpdateTimer @0x4b9240 (stock.cpp)
-	rm8Log("rules: day %d (%04d-%02d-%02d) price index %ld", g_days, g_year, g_month, g_mday, g_PI);
+	rm8Log("rules: day %d (%04d-%02d-%02d) price index %d", g_days, g_year, g_month, g_mday, g_PI);
 	// [V] Game_OnTurnStart @0x4a3b50: on the 1st (day > 5) Game_TriggerNormalEvent starts the monthly balance task 0x52 (balance.cpp: it credits the interest, Balance_ShowDepositInfo @0x4afa40),
 	// on the 15th Game_TriggerHolidayEvent @0x4a66b0 (the lottery draw 0x62); both are in rm8EventDaily (events.cpp). A task that started skips the date news
 	bool dayEvent = (g_days > 5 || rm8BalanceForced()) && rm8EventDaily(g_mday);
@@ -455,12 +484,12 @@ void rm8GameOnNewRound()
 	// (strictly greater, first seat wins ties) of setup+0x1C wins: 0 residential plots, 1 assets, 2 deposit, 3 points, 4 stocks (no stocks in the port: 0); 5 = bankruptcy only.
 	// The announcement is str 7057 "<str#7057>，%s獲勝！". [A] the ending itself (0x75, balance) is not in the port: the text is shown and play goes on
 	if(!g_over && g_endMonth && g_month == g_endMonth && g_mday == g_endDay && g_opts.winCond < 5 && !rm8StoryActive()){	// [V] 0x4a6090 only runs for the free game (setup +0 == 0)
-		int best = -1; long bv = 0;
+		int best = -1; int32_t bv = 0;	// [N] int32_t
 		for(int r = 0; r < (int)g_r.size(); r++){
 			if(rm8TurnStatus(r) == 7) continue;
-			long v = 0;
+			int32_t v = 0;	// [N] int32_t
 			if(g_opts.winCond == 0){ for(GTerra &t : g_t) if(t.owner == r && t.type == 1) v++; }
-			else if(g_opts.winCond == 1){ v = g_r[r].cash + g_r[r].deposit + rm8StockValue(r); for(GTerra &t : g_t) if(t.owner == r) v += calcPrice(t, false); }
+			else if(g_opts.winCond == 1){ v = rm8Add32(rm8Add32(g_r[r].cash, g_r[r].deposit), rm8StockValue(r)); for(GTerra &t : g_t) if(t.owner == r) v = rm8Add32(v, calcPrice(t, false)); }	// [N] 32-bit wrap like the original
 			else if(g_opts.winCond == 2) v = g_r[r].deposit;
 			else if(g_opts.winCond == 3) v = g_r[r].points;
 			else if(g_opts.winCond == 4) v = rm8StockValue(r);	// [V] Game_FindLeaderByWinCondition @0x4a6090: value 4 = the stock market value
@@ -468,7 +497,7 @@ void rm8GameOnNewRound()
 		}
 		if(best >= 0){
 			g_over = true; g_leader = best;
-			rm8Log("rules: time is up, seat %d wins (condition %d, value %ld)", best, g_opts.winCond, bv);
+			rm8Log("rules: time is up, seat %d wins (condition %d, value %d)", best, g_opts.winCond, bv);
 			// [V] Game_FindLeaderByWinCondition @0x4a6090 (this = the leader): its queues are cleared, str 7057 "<str#7057>，%s獲勝！", then 0x75(0, 1) (the winner's ending
 			// 0x48ff70 -> 0x7e win scene, 0x7d, 0x7a -> game state 4 = the map menu, story.cpp); Game_TurnNextRole gives the turn to the leader (rm8GameTakeLeader)
 			rm8TurnClearQueue(best);
@@ -546,9 +575,9 @@ static void settle(int me)
 	rm8HudSeatBankrupt(me);
 }
 
-long rm8GameCash(int r){ return validR(r) ? g_r[r].cash : 0; }
-long rm8GameDeposit(int r){ return validR(r) ? g_r[r].deposit : 0; }
-long rm8GamePI(){ return g_PI; }
+int32_t rm8GameCash(int r){ return validR(r) ? g_r[r].cash : 0; }	// [N] int32_t
+int32_t rm8GameDeposit(int r){ return validR(r) ? g_r[r].deposit : 0; }
+int32_t rm8GamePI(){ return g_PI; }
 int rm8GameDay(){ return g_days; }
 int rm8GameShape(int r){ return validR(r) ? g_r[r].shape : 0; }
 int rm8GameTerraCount(){ return (int)g_t.size(); }
@@ -556,9 +585,10 @@ int rm8GameTerraOwner(int t){ return validT(t) ? g_t[t].owner : -1; }
 int rm8GameTerraLevel(int t){ return validT(t) ? g_t[t].level : 0; }
 int rm8GameTerraType(int t){ return validT(t) ? g_t[t].type : 0; }
 int rm8GameTerraStreet(int t){ return validT(t) ? g_t[t].street : 0; }
-long rm8GameTerraCharge(int t){ return validT(t) ? (g_t[t].owner < 0 ? calcPrice(g_t[t], true) : buildUnitCost(g_t[t])) : 0; }	// [V] Terra.Charge
-long rm8GameTerraRent(int t, bool chain){ return validT(t) ? calcRent(t, chain) : 0; }
+int32_t rm8GameTerraCharge(int t){ return validT(t) ? (g_t[t].owner < 0 ? calcPrice(g_t[t], true) : buildUnitCost(g_t[t])) : 0; }	// [N] [V] Terra.Charge
+int32_t rm8GameTerraRent(int t, bool chain){ return validT(t) ? calcRent(t, chain) : 0; }
 int rm8GameNodeTerra(int node){ return g_s && node >= 0 && node < (int)g_s->rnodes.size() ? g_s->rnodes[node].terra : -1; }
+int rm8GameTerraNode(int t){ if(!g_s) return -1; for(int n = 0, N = (int)g_s->rnodes.size(); n < N; n++) if(g_s->rnodes[n].terra == t) return n; return -1; }
 int rm8GameNodeCount(){ return g_s ? (int)g_s->rnodes.size() : 0; }
 bool rm8GameNodeTile(int node, int &tx, int &ty){ if(!g_s || node < 0 || node >= (int)g_s->rnodes.size()) return false; tx = g_s->rnodes[node].tx; ty = g_s->rnodes[node].ty; return true; }
 std::string rm8GameMapId(){ return g_s ? g_s->mapId : std::string(); }
@@ -579,14 +609,14 @@ rw::Clump *rm8GameAddArt(int art, const float pos[3], float yaw, int anim)	// an
 }
 int rm8GameBuildingArt(int id, int level){ if(!g_s) return 0; auto it = g_s->buildingArt.find({id, level}); return it == g_s->buildingArt.end() ? 0 : it->second; }	// building.bin art of (building id, level)
 void rm8GameRemoveModel(rw::Clump *c){ if(g_s && c) rm8SceneRemoveArticle(*g_s, c); }
-bool rm8GameHud(int r, long &cash, long &dep){ if(!validR(r)) return false; cash = g_r[r].cash; dep = g_r[r].deposit; return true; }
+bool rm8GameHud(int r, int32_t &cash, int32_t &dep){ if(!validR(r)) return false; cash = g_r[r].cash; dep = g_r[r].deposit; return true; }	// [N] int32_t
 void rm8GameDate(int &y, int &m, int &d, int &w){ y = g_year; m = g_month; d = g_mday; w = g_wday; }
-long rm8GamePoints(int r){ return validR(r) ? g_r[r].points : 0; }
+int32_t rm8GamePoints(int r){ return validR(r) ? g_r[r].points : 0; }	// [N] int32_t
 // shared money / points / text access for events.cpp, cards.cpp, python.cpp
-void rm8GameAddMoney(int r, long v, bool deposit){ if(validR(r) && v > 0) addMoney(r, v, deposit); }
-void rm8GameSubMoney(int r, long v, bool depositFirst){ if(validR(r) && v > 0) subMoney(r, v, depositFirst); }
-void rm8GameSetMoney(int r, long cash, long deposit){ if(validR(r)){ g_r[r].cash = cash; g_r[r].deposit = deposit; } }
-void rm8GameAddPoints(int r, long v){ if(validR(r)) g_r[r].points = std::max(0L, g_r[r].points + v); }
+void rm8GameAddMoney(int r, int32_t v, bool deposit){ if(validR(r) && v > 0) addMoney(r, v, deposit); }	// [N] int32_t
+void rm8GameSubMoney(int r, int32_t v, bool depositFirst){ if(validR(r) && v > 0) subMoney(r, v, depositFirst); }
+void rm8GameSetMoney(int r, int32_t cash, int32_t deposit){ if(validR(r)){ g_r[r].cash = cash; g_r[r].deposit = deposit; } }
+void rm8GameAddPoints(int r, int32_t v){ if(validR(r)) g_r[r].points = std::max(0, g_r[r].points + v); }
 int rm8GameRand(){ return rnd(); }
 void rm8GameReseed(unsigned s){ g_seed = s; }
 int rm8GamePushText(const std::string &t){ return pushText(t); }
@@ -610,7 +640,7 @@ void rm8GameSetTerra(int t, int owner, int level, int build)
 void rm8GameSetShape(int r, int s){ if(validR(r)) g_r[r].shape = s; }
 int rm8GameInvisible(int r){ return validR(r) ? g_r[r].invisible : 0; }
 void rm8GameSetInvisible(int r, int n){ if(validR(r)) g_r[r].invisible = n; }
-long rm8GameTerraPrice(int t){ return validT(t) ? calcPrice(g_t[t], true) : 0; }	// [V] Terra_CalcPrice(1) @0x4efc80
+int32_t rm8GameTerraPrice(int t){ return validT(t) ? calcPrice(g_t[t], true) : 0; }	// [N] [V] Terra_CalcPrice(1) @0x4efc80
 bool rm8GameStreetClosed(int st){ auto f = g_stFx.find(st); return f != g_stFx.end() && f->second.closeDays > 0; }
 bool rm8GameTerraModel(int t, rw::Clump *&c, int &art){ if(!validT(t) || !g_t[t].model) return false; c = g_t[t].model; art = g_t[t].modelArt; return true; }	// the plot's building / sign article (boardfx.cpp plays its actions)
 int rm8GameTerraBuild(int t){ return validT(t) ? g_t[t].build : 0; }	// building type (+0x3C high word): 1 house, 2 institute, 3 chain store, 4 hotel
@@ -640,10 +670,10 @@ bool rm8GameTerraModelDef(int t, std::string &dff, std::string &texdir, std::str
 	return true;
 }
 // [V] CreateGameObject 0x50 / 0x51 @0x4b1bc0: the auction's base price = Terra_CalcPrice(1) / 2 (the starting price is half of that)
-long rm8GameAuctionBase(int t){ return validT(t) ? calcPrice(g_t[t], true) / 2 : 0; }
+int32_t rm8GameAuctionBase(int t){ return validT(t) ? calcPrice(g_t[t], true) / 2 : 0; }	// [N] int32_t
 // [V] Terra_AdjustPriceByPercent @0x4eed70 (news "property speculators" +10 / "haunted house" -10): +0x48 = +0x48 * p / 100 + +0x48 (C int division)
 void rm8GameTerraAdjustPct(int t, int p){ if(!validT(t)) return; int &c = g_t[t].pct; c = c * p / 100 + c; rm8Log("rules: plot %d price percent %d (%+d%%)", t, c, p); }
-long rm8GameRentPaid(int r){ return validR(r) ? g_r[r].rentOut : 0; }	// [V] +0x33C: Role_TransferRentToOwner @0x487f20 / Role_TransferRentRoadblock @0x488100 add the rent paid (the balance screen's "loss")
+int32_t rm8GameRentPaid(int r){ return validR(r) ? g_r[r].rentOut : 0; }	// [N] [V] +0x33C: Role_TransferRentToOwner @0x487f20 / Role_TransferRentRoadblock @0x488100 add the rent paid (the balance screen's "loss")
 int rm8GameBadDays(int r){ return validR(r) ? g_r[r].badDays : 0; }	// [V] +0x340: Role_RunTurnStartStep @0x4842f0 step 9 counts the turn starts in status 1 / 3 / 4 / 5 and the sleepwalk of the 糊塗神 (the balance screen's "unlucky days")
 void rm8GameNoteBadDay(int r){ if(validR(r)) g_r[r].badDays++; }
 void rm8GameStreetClose(int st, int days){ if(st > 0) g_stFx[st].closeDays = days; }	// [V] the street index must be > 0 (commercial plots cannot be sealed)

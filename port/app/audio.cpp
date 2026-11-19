@@ -68,6 +68,7 @@ bool g_trace = false;
 Pack g_snd, g_mus;
 Voice g_voice[MAX_VOICES];
 int g_nextHandle = 1;
+bool g_levelsSet = false;
 float g_sndMaster = 0.8f, g_musMaster = 0.2f;	// [V] level / 5.0 (Sound_SetVolumeLevel @0x406230, CDigitalAudio_SetMasterVolume @0x476250)
 
 struct CacheEnt { std::shared_ptr<Sample> s; uint64_t tick; };
@@ -225,10 +226,13 @@ bool rm8AudioInit(const std::string &gameDir)
 	g_trace = getenv("RM8_AUDIO_TRACE") != nullptr;
 	// [V] InitConfig_LoadInitTxt @0x401080: defaults sound 4 / music 3, init.txt [param] overrides; the master volume is level / 5 and
 	// only 0..1 is accepted (@0x406230)
+	// [A] when the option module has already set the levels (rm8AudioSetLevels, menu.cpp: rm8_settings.txt over init.txt) they stay; this read is the fallback of the test tools
 	std::string ini = gameDir + "/Config/init.txt";
 	int sl = readLevel(ini, "sound", 4), ml = readLevel(ini, "music", 3);
-	if(sl >= 0 && sl <= 5) g_sndMaster = sl / 5.0f;
-	if(ml >= 0 && ml <= 5) g_musMaster = ml / 5.0f;
+	if(!g_levelsSet){
+		if(sl >= 0 && sl <= 5) g_sndMaster = sl / 5.0f;
+		if(ml >= 0 && ml <= 5) g_musMaster = ml / 5.0f;
+	}
 	bool s = g_snd.open(gameDir + "/Sound/snd0000.dat", "snd%"), m = g_mus.open(gameDir + "/Music/mus0000.dat", "mus%");
 	if(!s && !m){ rm8Log("audio: no Sound/snd0000.dat or Music/mus0000.dat under %s", gameDir.c_str()); return false; }
 	if(SDL_InitSubSystem(SDL_INIT_AUDIO) != 0){ rm8Log("audio: SDL audio init failed: %s", SDL_GetError()); return false; }
@@ -247,6 +251,18 @@ bool rm8AudioInit(const std::string &gameDir)
 	return true;
 }
 
+// [V] Config_ApplySetting @0x50a710 -> Music_SetVolumeLevel @0x4061e0 (CDigitalAudio_SetMasterVolume(level / 5.0)) / Sound_SetVolumeLevel @0x406230
+// (the sound master = level / 5.0, accepted when 0..1); a level outside 0..5 is not applied. The music master is read by the mixer every block, so a playing track follows at once;
+// the sound master is applied when a sample starts (@0x4703a0) [H: the original may also touch playing samples].
+void rm8AudioSetLevels(int music, int sound)
+{
+	if(g_dev) SDL_LockAudioDevice(g_dev);
+	if(music >= 0 && music <= 5){ g_musMaster = music / 5.0f; g_levelsSet = true; }
+	if(sound >= 0 && sound <= 5){ g_sndMaster = sound / 5.0f; g_levelsSet = true; }
+	if(g_dev) SDL_UnlockAudioDevice(g_dev);
+	if(g_trace) rm8Log("audio: levels music %d (%.1f) sound %d (%.1f)", music, g_musMaster, sound, g_sndMaster);
+}
+
 void rm8AudioShutdown()
 {
 	if(!g_dev) return;
@@ -258,28 +274,96 @@ void rm8AudioShutdown()
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
-int rm8SndPlay(int id, int loops, float volume)
+namespace {
+// [N] netplay (docs/netplay.md section 2.6): "is the sample still playing" gates game waits (the event dialogs' voices, the role waits, the balance screen). The real
+// playback depends on the device (buffering, a missing device, the app in the background), so a netplay game asks a deterministic clock instead: every sample
+// lasts its PCM length from the WAV header (frames / rate x loops; forever = until stopped), counted down by rm8AudioDetTick with the fixed simulation step.
+// The sound itself still plays on the device as before. Off (single player): nothing changes.
+bool g_det = false;
+struct DetVoice { float left = 0; bool forever = false; };
+std::unordered_map<int, DetVoice> g_detV;
+std::unordered_map<int, float> g_detLen;	// sample id -> seconds (-1 = missing)
+float detLength(int id)
+{
+	auto it = g_detLen.find(id);
+	if(it != g_detLen.end()) return it->second;
+	float len = -1;
+	std::vector<uint8_t> d;
+	if(g_snd.read(id, d) && d.size() >= 12 && !memcmp(d.data(), "RIFF", 4) && !memcmp(d.data() + 8, "WAVE", 4)){
+		uint32_t rate = 0; uint16_t align = 0; uint32_t data = 0; bool haveFmt = false, haveData = false;
+		for(size_t p = 12; p + 8 <= d.size();){
+			uint32_t sz; memcpy(&sz, d.data() + p + 4, 4);
+			if(!memcmp(d.data() + p, "fmt ", 4) && p + 8 + 16 <= d.size()){ memcpy(&rate, d.data() + p + 12, 4); memcpy(&align, d.data() + p + 20, 2); haveFmt = true; }
+			else if(!memcmp(d.data() + p, "data", 4)){ data = (uint32_t)std::min<size_t>(sz, d.size() - (p + 8)); haveData = true; }
+			p += 8 + (size_t)sz + (sz & 1);
+		}
+		if(haveFmt && haveData && rate > 0 && align > 0) len = (float)(data / align) / (float)rate;
+	}
+	g_detLen[id] = len;
+	return len;
+}
+
+int playReal(int id, int loops, float volume, int handle)
 {
 	if(!g_dev) return 0;
 	std::shared_ptr<Sample> s = getSample(id);	// decoded outside the device lock
 	if(!s) return 0;
-	int handle = 0;
+	int got = 0;
 	SDL_LockAudioDevice(g_dev);
 	for(Voice &v : g_voice){
 		if(v.active) continue;
 		v.s = s; v.pos = 0; v.forever = loops <= 0; v.loops = loops;	// [V] Miles: 0 = forever, 1 = once (a negative count is taken as forever [H])
 		v.vol = (int)(std::max(0.0f, std::min(1.0f, volume * g_sndMaster)) * 65536.0f);	// [V] volume * master (@0x4703a0)
-		handle = v.handle = g_nextHandle++; if(g_nextHandle <= 0) g_nextHandle = 1;
+		if(handle) got = v.handle = handle;
+		else { got = v.handle = g_nextHandle++; if(g_nextHandle <= 0) g_nextHandle = 1; }
 		v.active = true;
 		break;
 	}
 	SDL_UnlockAudioDevice(g_dev);
+	return got;
+}
+}	// namespace
+
+int rm8SndPlay(int id, int loops, float volume)
+{
+	if(g_det){	// [N] the handle exists (and "plays" for the sample's length) whether or not the device could play it
+		float len = detLength(id);
+		if(len < 0) return 0;
+		int handle = g_nextHandle++; if(g_nextHandle <= 0) g_nextHandle = 1;
+		DetVoice v; v.forever = loops <= 0; v.left = len * (float)std::max(1, loops);
+		g_detV[handle] = v;
+		playReal(id, loops, volume, handle);
+		if(g_trace) rm8Log("audio: play %d loops %d vol %.2f -> %d (deterministic %.3f s)", id, loops, volume, handle, v.left);
+		return handle;
+	}
+	int handle = playReal(id, loops, volume, 0);
 	if(g_trace) rm8Log("audio: play %d loops %d vol %.2f -> %d", id, loops, volume, handle);
 	return handle;
 }
 
+int rm8SndPlayLocal(int id, int loops, float volume)
+{
+	if(!g_det) return rm8SndPlay(id, loops, volume);
+	static int next = 0x40000000;	// [N] N4: the minigame handles (far from g_nextHandle, which the simulation shares)
+	int handle = next++; if(next <= 0x40000000) next = 0x40000000;
+	playReal(id, loops, volume, handle);
+	if(g_trace) rm8Log("audio: local play %d loops %d vol %.2f -> %d", id, loops, volume, handle);
+	return handle;
+}
+
+void rm8AudioSetDeterministic(bool on){ if(g_det != on) rm8Log("audio: deterministic sample clock %s", on ? "on (netplay)" : "off"); g_det = on; g_detV.clear(); }
+void rm8AudioDetTick(float dt)
+{
+	if(!g_det) return;
+	for(auto it = g_detV.begin(); it != g_detV.end();){
+		if(!it->second.forever){ it->second.left -= dt; if(it->second.left <= 0){ it = g_detV.erase(it); continue; } }
+		++it;
+	}
+}
+
 void rm8SndStop(int handle)
 {
+	if(g_det && handle > 0) g_detV.erase(handle);
 	if(!g_dev || handle <= 0) return;
 	SDL_LockAudioDevice(g_dev);
 	for(Voice &v : g_voice) if(v.active && v.handle == handle){ v.active = false; v.s.reset(); if(g_trace) rm8Log("audio: stop %d", handle); }
@@ -288,6 +372,7 @@ void rm8SndStop(int handle)
 
 void rm8SndStopAll()
 {
+	if(g_det) g_detV.clear();
 	if(!g_dev) return;
 	SDL_LockAudioDevice(g_dev);
 	for(Voice &v : g_voice){ v.active = false; v.s.reset(); }
@@ -296,6 +381,7 @@ void rm8SndStopAll()
 
 bool rm8SndPlaying(int handle)
 {
+	if(g_det) return handle > 0 && g_detV.count(handle) != 0;
 	if(!g_dev || handle <= 0) return false;
 	SDL_LockAudioDevice(g_dev);
 	bool r = false;
@@ -404,11 +490,16 @@ void rm8AudioStreamClose()
 #else	// no SDL: silent stubs (offscreen viewer)
 
 bool rm8AudioInit(const std::string &){ return false; }
+void rm8AudioSetLevels(int, int){}
 void rm8AudioShutdown(){}
 int rm8SndPlay(int, int, float){ return 0; }
+int rm8SndPlayLocal(int, int, float){ return 0; }
 void rm8SndStop(int){}
 void rm8SndStopAll(){}
 bool rm8SndPlaying(int){ return false; }
+void rm8AudioSetDeterministic(bool){}
+void rm8AudioDetTick(float){}
+
 void rm8MusicPlay(int, bool){}
 void rm8MusicStop(){}
 void rm8MusicPlayBoard(const std::string &, bool){}

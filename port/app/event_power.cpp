@@ -37,10 +37,10 @@ struct Company {
 		if(chairman >= 0) for(int i = 0; i < 4; i++) if(share[chairman] < share[i]) chairman = i;
 	}
 	// [V] PowerCo_TryBuyStock @0x4da790 / TicketCenter_CheckBudget @0x4dff50: returns the cost, 0 when refused
-	long tryBuy(int seat, float amount)
+	int32_t tryBuy(int seat, float amount)	// [N] int32_t
 	{
 		if(remaining() <= 0.0f) return 0;
-		long cost = rm8GamePI() * 5000;
+		int32_t cost = rm8GamePI() * 5000;	// [N] int32_t
 		if(cost >= rm8GameDeposit(seat)) return 0;
 		moneyWithdraw(seat, cost, 1);
 		share[seat] += amount;
@@ -55,10 +55,10 @@ Company g_pw, g_tc;
 void init(){ static bool done = false; if(!done){ done = true; g_pw.power = true; g_tc.power = false; } }
 
 // [V] Role_CalcOwnRentSumTenPercent @0x48c630
-long rentTenPercent(int seat)
+int32_t rentTenPercent(int seat)	// [N] int32_t
 {
-	long sum = 0, pi = std::max(1L, rm8GamePI());
-	for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == seat){ sum = std::min(999999999L, sum + rm8GameTerraRent(t, true) / pi); }
+	int32_t sum = 0, pi = std::max(1, rm8GamePI());	// [N] int32_t
+	for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == seat){ sum = std::min(999999999, sum + rm8GameTerraRent(t, true) / pi); }
 	return (sum / 100) * 10;
 }
 
@@ -72,11 +72,11 @@ int multiplier(Company &c, int die)
 }
 
 // [V] PowerCo_PaymentDivide @0x4daaa0 (power) / TicketCenter_PaymentDivide @0x4e0340 (tickets)
-void paymentDivide(Company &c, int cur, long amount)
+void paymentDivide(Company &c, int cur, int32_t amount)	// [N] int32_t
 {
 	for(int s = 0; s < rm8TurnRoleCount() && s < 4; s++){
 		if(rm8TurnStatus(s) == 7) continue;
-		long part = (long)(amount * c.share[s]);
+		int32_t part = (int32_t)(amount * c.share[s]);	// [N] int32_t
 		if(part <= 0) continue;
 		if(c.power){
 			if(s == cur) rm8TurnEnqueue(s, 0x5c, (int)part, 1);			// Role_AddMoney(part, deposit)
@@ -187,14 +187,14 @@ struct CoTask : Task {
 	void buy()	// [V] PowerCo_ShowPurchaseDialog @0x4d9d00 / TicketCenter_BuyTickets @0x4df130
 	{
 		rm8SndStop(voice); voice = 0;
-		long cost = c.tryBuy(seat, 0.1f);
+		int32_t cost = c.tryBuy(seat, 0.1f);	// [N] int32_t
 		if(cost == 0){ say(power ? 4424 : 4226); npcPlay(npc, power ? 6 : 8); state = 4; return; }	// "deposit too low"
 		say(plainFmt(power ? 4405 : 4207, (int)cost));
 		npcPlay(npc, power ? 4 : 6);
 		refreshBars();
 		state = 0x14;
 		timer = 1.6f * waitScale();
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s: seat %d buys 10%% for %ld (share %.1f, chairman %d)", power ? "power company" : "ticket center", seat, cost, c.share[seat], c.chairman);
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s: seat %d buys 10%% for %d (share %.1f, chairman %d)", power ? "power company" : "ticket center", seat, cost, c.share[seat], c.chairman);
 	}
 
 	void click(const std::string &n) override
@@ -222,9 +222,9 @@ struct CoTask : Task {
 		say(plainFmt(4204, die, c.level));
 		npcPlay(npc, 3);
 		timer = 1.6f * waitScale();
-		long have = rm8GamePoints(seat);
+		int32_t have = rm8GamePoints(seat);	// [N] int32_t
 		subTickets(seat, pay);							// [V] Role_SubTicketEmoteAny(pay, 0) @0x48a030 called at once (no emote): +0x324 - pay, floor 0
-		paymentDivide(c, seat, std::min<long>(have, pay));
+		paymentDivide(c, seat, std::min<int32_t>(have, pay));	// [N] int32_t
 		consumeAmount = pay;
 		state = 0xb;
 	}
@@ -249,11 +249,11 @@ struct CoTask : Task {
 				say(power ? 4402 : 4202); npcPlay(npc, 1);
 				showPlane(true);
 			}else if(power){
-				long amt = rentTenPercent(seat);
+				int32_t amt = rentTenPercent(seat);	// [N] int32_t
 				say(plainFmtV(4403, (int)amt)); npcPlay(npc, 2);
 				rm8GameSubMoney(seat, amt, false);		// [V] Role_SubMoney(amt, 0, 0)
 				paymentDivide(c, seat, amt);
-				if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: power company: seat %d pays %ld", seat, amt);
+				if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: power company: seat %d pays %d", seat, amt);
 			}else{
 				say(4203); npcPlay(npc, 2);
 				showDieGo(this, "Temp");	// [V] the go panel (one die) at the Temp widget
@@ -298,7 +298,7 @@ struct CoTask : Task {
 
 void companyClear(){ init(); g_pw.clear(); g_tc.clear(); }
 void testChairman(bool power, int seat){ init(); Company &c = power ? g_pw : g_tc; c.clear(); c.share[seat] = 0.1f; c.chairman = seat; }
-long powerChairmanShare(int seat){ return (long)(g_pw.share[seat] * 100); }
+int32_t powerChairmanShare(int seat){ return (int32_t)(g_pw.share[seat] * 100); }	// [N] int32_t
 
 Task *makePowerTask(int seat)
 {
@@ -324,7 +324,7 @@ static bool aiCompany(int seat, Company &c)
 	int oldChair = c.chairman;
 	if(c.chairman != seat){
 		if(c.power){
-			long amt = rentTenPercent(seat);
+			int32_t amt = rentTenPercent(seat);	// [N] int32_t
 			if(amt > 0){
 				paymentDivide(c, seat, amt);
 				queueTextAt(seat, pos++, plainFmt(269, name.c_str(), (int)amt));		// "%s<str#151>%d元"
@@ -339,7 +339,7 @@ static bool aiCompany(int seat, Company &c)
 			}
 		}
 	}
-	if(c.remaining() > 0.05f && rm8GameDeposit(seat) >= 20000L * rm8GamePI() && c.tryBuy(seat, 0.1f) > 0){
+	if(c.remaining() > 0.05f && rm8GameDeposit(seat) >= 20000 * rm8GamePI() && c.tryBuy(seat, 0.1f) > 0){	// [N] int32_t
 		queueTextAt(seat, pos++, plainFmt(c.power ? 270 : 273, name.c_str()));			// "%s購買...股票"
 		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s: computer seat %d buys 10%% (shares %.1f %.1f %.1f %.1f, chairman %d)", c.power ? "power company" : "ticket center", seat, c.share[0], c.share[1], c.share[2], c.share[3], c.chairman);
 		if(oldChair != seat && c.chairman == seat){

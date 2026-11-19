@@ -51,7 +51,7 @@ float g_afterT = -1;	// debug: the roles' state is logged 10 s after a news ende
 void dumpState(const char *tag)
 {
 	if(!dbg()) return;
-	for(int s = 0; s < rm8TurnRoleCount(); s++) rm8Log("news state (%s): seat %d cash %ld deposit %ld points %ld cards %d status %d shape %d", tag, s, rm8GameCash(s), rm8GameDeposit(s), rm8GamePoints(s), rm8CardCount(s), rm8TurnStatus(s), rm8GameShape(s));
+	for(int s = 0; s < rm8TurnRoleCount(); s++) rm8Log("news state (%s): seat %d cash %d deposit %d points %d cards %d status %d shape %d", tag, s, rm8GameCash(s), rm8GameDeposit(s), rm8GamePoints(s), rm8CardCount(s), rm8TurnStatus(s), rm8GameShape(s));
 }
 
 bool validSeat(int s){ return s >= 0 && s < rm8TurnRoleCount(); }
@@ -207,39 +207,39 @@ void textWaitThen(int seat, const std::string &text, int cmd, int a, int b)
 bool eventMoney(int base, int id, bool gain)
 {
 	if(base <= 0) return false;
-	long amt = (long)base * rm8GamePI();
+	int32_t amt = (int32_t)base * rm8GamePI();	// [N] int32_t
 	int seat = randomPlayer(false);
 	if(seat < 0) return false;
 	caption(fmt(300 + id, rm8TurnName(seat), (int)amt));
 	rm8TurnEnqueueAt(seat, 0, gain ? 0x17 : 0x16, (int)amt, 0);
 	if(!gain) ev::lotteryPoolAdd(amt);
 	pairWithCurrent(seat, 1);
-	rm8Log("news: seat %d %s %ld (news %d)", seat, gain ? "gets" : "loses", amt, id);
+	rm8Log("news: seat %d %s %d (news %d)", seat, gain ? "gets" : "loses", amt, id);
 	return true;
 }
 // [V] Role_TakeMoney @0x4b8af0 (role, base, string index): the role gets base x PI in cash (0x17 at the front of its queue), the text is string `strId`
 bool takeMoney(int seat, int base, int strId)
 {
 	if(!validSeat(seat)) return false;
-	long amt = (long)base * rm8GamePI();
+	int32_t amt = (int32_t)base * rm8GamePI();	// [N] int32_t
 	caption(fmt(strId, rm8TurnName(seat), (int)amt));
 	rm8TurnEnqueueAt(seat, 0, 0x17, (int)amt, 0);
 	pairWithCurrent(seat, 1);
-	rm8Log("news: seat %d is rewarded %ld (string %d)", seat, amt, strId);
+	rm8Log("news: seat %d is rewarded %d (string %d)", seat, amt, strId);
 	return true;
 }
 // [V] News_EventBankHack @0x4b5570: every role that is not bankrupt loses `amt` of its deposit (not below 0, set at once); each adds amt to the lottery pool
 bool eventBankHack(int base)
 {
-	long amt = (long)base * rm8GamePI();
+	int32_t amt = (int32_t)base * rm8GamePI();	// [N] int32_t
 	for(int s = 0; s < rm8TurnRoleCount(); s++){
 		if(!alive(s)) continue;
-		long dep = rm8GameDeposit(s) - amt;
+		int32_t dep = rm8GameDeposit(s) - amt;	// [N] int32_t
 		rm8GameSetMoney(s, rm8GameCash(s), dep < 0 ? 0 : dep);
 		ev::lotteryPoolAdd(amt);
 	}
 	caption(fmt(317, (int)amt));
-	rm8Log("news: bank hack, every deposit -%ld", amt);
+	rm8Log("news: bank hack, every deposit -%d", amt);
 	return true;
 }
 // [V] News_EventPrisonAmnesty @0x4b6180 / News_EventHospitalFire @0x4b6250 (the decompile's names are swapped: status 4 = hospital, 5 = prison, cards.cpp): every role in that
@@ -249,11 +249,11 @@ void releaseStatus(int status)
 	for(int s = 0; s < rm8TurnRoleCount(); s++) if(alive(s) && rm8TurnStatus(s) == status){ rm8CardsSetStatusDays(s, 0); rm8Log("news: seat %d leaves status %d at its next turn", s, status); }
 }
 // a role pick by value: the best (max, value > 0) or the worst (min, value < bad) over the roles that are not bankrupt; ties keep the first
-int pickBy(const std::function<long(int)> &f, bool wantMax, long bad)
+int pickBy(const std::function<int32_t(int)> &f, bool wantMax, int32_t bad)	// [N] int32_t
 {
-	int best = -1; long bv = 0;
+	int best = -1; int32_t bv = 0;	// [N] int32_t
 	for(int s = 0; s < rm8TurnRoleCount(); s++){
-		long v = alive(s) ? f(s) : (wantMax ? 0 : bad);
+		int32_t v = alive(s) ? f(s) : (wantMax ? 0 : bad);	// [N] int32_t
 		if(wantMax){ if(v > 0 && (best < 0 || bv < v)){ best = s; bv = v; } }
 		else if(v < bad && (best < 0 || v < bv)){ best = s; bv = v; }
 	}
@@ -349,7 +349,7 @@ bool eventDemolition()
 	int cur = rm8TurnCurrent();
 	if(validSeat(cur) && cur != o){ rm8TurnEnqueueAt(cur, 0, 0x2e, o + 1, 0); rm8TurnEnqueueAt(o, 3, 0x2e, cur + 1, 0); }
 	caption(str(333));
-	rm8Log("news: demolition of plot %d (seat %d), compensation %ld", t, o, rm8GameTerraPrice(t));
+	rm8Log("news: demolition of plot %d (seat %d), compensation %d", t, o, rm8GameTerraPrice(t));
 	return true;
 }
 // [V] News_EventMonsterAttack @0x4b7910: any plot with a building whose owner is a role that is not character 10; the current role gets 0x31(plot) at the front (the monster)
@@ -419,7 +419,7 @@ bool eventDogBite(int id)
 // [V] News_EventInterestRate @0x4b67b0: every role that is not bankrupt: 0x5C(deposit * 10 / 100, 1) at the front of its queue
 bool eventInterest()
 {
-	for(int s = 0; s < rm8TurnRoleCount(); s++) if(alive(s)){ int v = (int)(rm8GameDeposit(s) * 10 / 100); rm8TurnEnqueueAt(s, 0, 0x5c, v, 1); rm8Log("news: interest %d for seat %d", v, s); }
+	for(int s = 0; s < rm8TurnRoleCount(); s++) if(alive(s)){ int v = rm8Mul32(rm8GameDeposit(s), 10) / 100; rm8TurnEnqueueAt(s, 0, 0x5c, v, 1); rm8Log("news: interest %d for seat %d", v, s); }	// [N] deposit * 10 wraps above 214748364 like the original's imul (was 64-bit on Android)
 	caption(str(303));
 	return true;
 }
@@ -437,13 +437,13 @@ bool eventSwitch(int id)
 	case 3: return eventInterest();
 	case 4: {	// News_EventDiceEvent: from day 16, the role with the most plots (> 0)
 		if(rm8GameDay() < 16) return false;
-		int s = pickBy([](int k){ return (long)ownedPlots(k); }, true, 0);
+		int s = pickBy([](int k){ return (int32_t)ownedPlots(k); }, true, 0);	// [N] int32_t
 		if(s < 0) return false;
 		return takeMoney(s, (rnd() % 5 + 1) * 2000, 304); }
 	case 5: return eventMoney((rnd() % 10 + 1) * 2000, id, true);
 	case 6: {	// News_EventUnluckyDice: from day 16, the role with the fewest plots (0 counts)
 		if(rm8GameDay() < 16) return false;
-		int s = pickBy([](int k){ return (long)ownedPlots(k); }, false, 1L << 30);
+		int s = pickBy([](int k){ return (int32_t)ownedPlots(k); }, false, 1 << 30);	// [N] int32_t
 		if(s < 0) return false;
 		return takeMoney(s, (rnd() % 5 + 1) * 2000, 306); }
 	case 7: case 0xe: return eventMoney((rnd() % 3 + 1) * 1000, id, false);
@@ -482,9 +482,9 @@ bool eventSwitch(int id)
 	case 0x28: return eventBirthday();
 	case 0x29: {	// News_EventStockLiquidate: every role sells all its shares, the deposit gets the money; fails if nothing was sold
 		if(!marketOpenWeekday()) return false;
-		long total = rm8StockLiquidateAll();
+		int32_t total = rm8StockLiquidateAll();	// [N] int32_t
 		if(total <= 0) return false;
-		caption(str(341)); rm8Log("news: every share is sold, %ld to the deposits", total); return true; }
+		caption(str(341)); rm8Log("news: every share is sold, %d to the deposits", total); return true; }
 	case 0x2a: {	// News_EventBankruptEvent: from day 6, the role with the smallest deposit
 		if(rm8GameDay() < 6) return false;
 		int s = pickBy([](int k){ return rm8GameDeposit(k); }, false, 1000000000);
@@ -539,7 +539,7 @@ void percentToSex(int pct, int sex)
 {
 	for(int s = 0; s < rm8TurnRoleCount(); s++){
 		if(!alive(s) || rm8TurnSex(s) != sex) continue;
-		int amt = (int)(rm8GameDeposit(s) * pct / 100);
+		int amt = rm8Mul32(rm8GameDeposit(s), pct) / 100;	// [N] the original's 32-bit imul (deposit > 214748364 at 10 %), explicit
 		textWaitThen(s, fmt(5321, rm8TurnName(s), amt), 0x17, amt, 0);
 	}
 }

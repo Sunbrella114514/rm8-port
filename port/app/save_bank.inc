@@ -9,7 +9,7 @@ void rm8SaveEventsRoleGet(int seat, Rm8SaveRole &r)
 	for(int &v : r.loan) v = 0;
 	if(L.principal <= 0) return;
 	r.loan[0] = (int)L.principal; r.loan[1] = L.y; r.loan[2] = L.m; r.loan[3] = L.d;
-	long z = rm8SaveCivilDays(L.y, L.m, L.d); int w0 = (int)(((z + 4) % 7 + 7) % 7);
+	int32_t z = rm8SaveCivilDays(L.y, L.m, L.d); int w0 = (int)(((z + 4) % 7 + 7) % 7);	// [N] int32_t
 	r.loan[4] = w0 == 0 ? 7 : w0;
 	int y, m, d, wd; rm8GameDate(y, m, d, wd);
 	r.loan[5] = rm8GameDay() - (int)(rm8SaveCivilDays(y, m, d) - z);

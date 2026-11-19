@@ -40,12 +40,20 @@
 #include "movie.h"
 #include "story_host.h"
 #include "save.h"
+#include "rules_plus.h"
 #include "infoscreens.h"
+#include "net.h"
 
 // [V] the board scene's key handler (CGamePlayScene__OnEvent @0x4a1e80): Game_SelectNextPlayer @0x4a6d60 first (any key while the current role walks gives the next
 // auto-played seat back and is consumed), then F1..F4 (keys 0x81..0x84) = seats 0..3: toggle that seat's auto play (rm8AutoKey, roles.cpp). True = the key is used.
 static bool autoPlayKey(SDL_Keycode k)
 {
+	if(rm8NetActive()){	// [N] netplay: F1..F4 toggle the auto play of the player's own seats only, as a command (net.cpp checks the event / state at its frame)
+		if(k < SDLK_F1 || k > SDLK_F4) return false;
+		int seat = k - SDLK_F1;
+		if(rm8NetOwnsSeat(seat)) rm8NetInput(RM8C_AUTOKEY, seat);
+		return true;
+	}
 	if(rm8AutoRelease()) return true;
 	if(k < SDLK_F1 || k > SDLK_F4) return false;
 	int seat = k - SDLK_F1;
@@ -181,6 +189,7 @@ static void setupWindowCamera(Camera *cam, int w, int h)
 static std::string g_shotArg; static int g_framesArg = -1;
 static unsigned gameSeed(size_t mapIdx)
 {
+	{ unsigned s; if(rm8NetSeed(s)) return s; }	// [N] a netplay game: the host's seed on every device
 	if(const char *e = getenv("RM8_SEED")) return (unsigned)strtoul(e, nullptr, 10);
 	if(!g_shotArg.empty() || g_framesArg > 0) return 1u + (unsigned)mapIdx;
 	return (unsigned)time(nullptr) ^ (SDL_GetTicks() * 2654435761u);
@@ -418,6 +427,7 @@ int main(int argc, char *argv[])
 	if(getenv("RM8_STORY") || getenv("RM8_MOVIE")) skipMenu = true;	// story / cutscene test hooks (story.h, movie.h) run without the menus
 	if(!loadPath.empty()) skipMenu = true;	// --load: straight to the saved board
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+	SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");	// [N] Android: the main loop keeps running in the background (it only polls the netplay sockets then, nothing is drawn), so a phone that is switched away for a while stays in its netplay session
 	Engine::init();
 	rm8RegisterPlugins();
 	SDL_Window *win = nullptr;
@@ -485,6 +495,10 @@ int main(int argc, char *argv[])
 	rm8InfoSetScene(&sc);	// the minimap and the board info box (infoscreens.cpp)
 	Camera *cam = Camera::create();
 	cam->setFrame(Frame::create());
+	// [N] netplay: the rules' camera (same-node placement, doll facing, dice direction, card range) is a fixed default view built from exact constants
+	// (rm8NetPlaceSimCamera), so every device computes the same game; the view camera above stays free to pan / turn / zoom
+	Camera *simCam = Camera::create();
+	simCam->setFrame(Frame::create());
 	Orbit o = cam0;
 	bool haveRoles = dataOk && rm8RolesLoadDefs(scenesRoot + "/roles.txt");
 	if(haveRoles) rm8PyInit(game + "/Pysrc");	// original Python scripts (computer decisions)
@@ -512,7 +526,7 @@ int main(int argc, char *argv[])
 		if(!rm8LoadScene(scenesRoot + "/" + maps[idx], sc)){ bg = {230, 140, 20, 255}; sc.world = World::create(); }
 		sc.world->addCamera(cam);
 		rm8MusicPlayBoard(maps[idx]);	// [V] Game_LoadMapData @0x4a31f0 starts the board music playlist once the map is loaded
-		if(haveRoles){ rm8StockSetMap(scenesRoot, maps[idx]); rm8RolesSetHumans(humanMask); rm8GameSetOptions(gameOpts); rm8RolesSpawn(sc, roleIds, gameSeed(idx), humanSeat); }	// [A] demo players; seat 0 human on a phone
+		if(haveRoles){ rm8StockSetMap(scenesRoot, maps[idx]); rm8RolesSetHumans(humanMask); rm8GameSetOptions(gameOpts); rm8RolesSpawn(sc, roleIds, gameSeed(idx), humanSeat); rm8RulesBeginGame(gameSeed(idx)); }	// [A] demo players; seat 0 human on a phone; [R] the rule set of the game (rules_plus.h; a load overwrites it from the record)
 		if(haveUi){ seatPics.clear(); for(int k = 0; k < rm8TurnRoleCount(); k++) seatPics.push_back(rm8TurnPic(k)); rm8HudInit(seatPics); }
 		o = cam0;
 		rm8Log("map %s: leaves=%d road_quads=%d articles=%d failed=%d skin_to_cpu=%d animated=%d anim_failed=%d uv_animated=%d pad_quads=%d missing_textures=%d load=%ums",
@@ -543,18 +557,30 @@ int main(int argc, char *argv[])
 		rm8StoryBegin(st);
 		loadMap(idx);
 		rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, o.tx, o.tz); rm8RolesSetCamera(cam);	// the same-node placement of the loaded roles (Game_MoveRoleToPosition) needs the camera axes
+		if(rm8NetActive()){ rm8NetPlaceSimCamera(simCam, sc, o.tx, o.tz); rm8RolesSetCamera(simCam); }	// [N] netplay: the rules' fixed camera
 		if(!rm8SaveApply(err)){ rm8Log("load: %s", err.c_str()); return false; }
 		// [V] the original keeps the C runtime rand() state out of the record (Game_WriteRecordToFile @0x4a7540), so a reloaded game rolls other dice ("SL"):
 		// interactive loads draw fresh seeds for the dice, the rules rand() and Python's random; the save round-trip tests (shot / frames runs, RM8_SAVE_EXACT)
 		// keep the stored ones for byte-identical replays
-		if(g_shotArg.empty() && g_framesArg <= 0 && !getenv("RM8_SAVE_EXACT")){
+		if(g_shotArg.empty() && g_framesArg <= 0 && !getenv("RM8_SAVE_EXACT") && !rm8NetActive()){	// [N] a netplay resync keeps the host's streams
 			unsigned s = (unsigned)time(nullptr) ^ (SDL_GetTicks() * 2654435761u);
-			rm8DiceSeed(s * 7 + 3); rm8GameReseed(s * 13 + 5); rm8SavePySeed(s);
+			rm8DiceSeed(s * 7 + 3); rm8GameReseed(s * 13 + 5); rm8SavePySeed(s); rm8RulesReseed(s * 17 + 7);
 			rm8Log("load: fresh random seeds (dice / rules / python)");
 		}
 		return true;
 	};
 	{ rm8CollectInit(rm8UserDataDir(scenesRoot), game); }	// [A] profile (puzzle pieces) + story box next to rm8_settings.txt in the user data folder (scene.cpp rm8UserDataDir: desktop %APPDATA%/RM8, RM8_DATA_DIR overrides)
+	// [V] Config_ApplySetting @0x50a710 fullscreen (CApp_SetFullscreenMode @0x405da0): the window mode follows the option; [A] desktop only (Android is always immersive), not for the offscreen shot
+	rm8MenuHooks().applyOptions = [win, &shot](const Rm8Options &o){
+#ifndef __ANDROID__
+		if(!win || !shot.empty()) return;
+		bool fs = (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+		if(fs != (o.fullscreen != 0)){ SDL_SetWindowFullscreen(win, o.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0); rm8Log("window: %s", o.fullscreen ? "fullscreen" : "windowed"); }
+#else
+		(void)win; (void)shot; (void)o;
+#endif
+	};
+	rm8MenuLoadOptions(game, scenesRoot);	// [A] init.txt + rm8_settings.txt: difficulty, speed, volumes, window mode (also for runs without the menus)
 	if(!skipMenu && haveUi && !maps.empty() && shot.empty() && rm8MenuInit(game, scenesRoot, maps)) inMenu = true;
 	const bool menuOk = inMenu;	// the front-end menus exist (the story host falls back to quitting without them)
 	if(dataOk){ rm8StoryLoad(scenesRoot); rm8MovieInit(scenesRoot); rm8StoryHostSetScene(&sc, scenesRoot); }	// scenes/story.txt, scenes/movie_arts.txt (scripts/export_story.py)
@@ -574,8 +600,11 @@ int main(int argc, char *argv[])
 		if(haveUi) rm8UiSetScreen(W, H);	// the UI layout of the shot size from the start (test drivers click through the real UI during the simulation)
 		static const bool autoRoll = getenv("RM8_AUTO_ROLL") != nullptr;	// test hook: the human seat presses GO whenever it waits (shot mode)
 		static const float stepDt = getenv("RM8_SHOT_DT") ? (float)atof(getenv("RM8_SHOT_DT")) : 1.0f / 30;	// test hook: simulate a slow phone (frame time in seconds, the game clamps it to 0.1)
+		// test hook RM8_OPT_AT="<seconds>:<slider>:<value>[,...]": the option slider (1 music, 2 sound, 3 speed, 4 difficulty, 5 fullscreen) changes at that game time, like a change in the option menu (Config_ApplySetting)
+		struct OptAt { float t; int id, v; bool done; }; std::vector<OptAt> optAt;
+		if(const char *oa = getenv("RM8_OPT_AT")){ for(const char *c = oa; *c;){ OptAt e = {0, 0, 0, false}; int n = 0; if(sscanf(c, "%f:%d:%d%n", &e.t, &e.id, &e.v, &n) >= 3) optAt.push_back(e); const char *nx = strchr(c, ','); if(!nx) break; c = nx + 1; } }
 		float trigT = -1;	// test hook RM8_SHOT_ON_INFO=<text>: stop the simulation 0.5 s after an info box containing <text> appeared (hud.cpp)
-		for(float t = 0; t < shotTime; t += stepDt){ if(rm8HudShotTriggered() && trigT < 0) trigT = t; if(trigT >= 0 && t - trigT > 0.5f) break; float d = std::min(stepDt, shotTime - t); cardRangeView(sc); rm8UpdateScene(sc, d); rm8RolesUpdate(sc, d); rm8EventUpdate(d); if(autoRoll) rm8RolesHumanRoll(); if(!cardPickCamera(sc, cam)){ float fp[3] = {o.tx, 0, o.tz}; if(getenv("RM8_SHOT_FOLLOW")) rm8RolesFocus(fp); rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, fp[0], fp[2]); } }
+		for(float t = 0; t < shotTime; t += stepDt){ if(rm8HudShotTriggered() && trigT < 0) trigT = t; if(trigT >= 0 && t - trigT > 0.5f) break; float d = std::min(stepDt, shotTime - t); for(OptAt &e : optAt) if(!e.done && t >= e.t){ e.done = true; rm8MenuOptionSet(e.id, e.v); } cardRangeView(sc); rm8UpdateScene(sc, d); rm8RolesUpdate(sc, d); rm8EventUpdate(d); if(autoRoll) rm8RolesHumanRoll(); if(!cardPickCamera(sc, cam)){ float fp[3] = {o.tx, 0, o.tz}; if(getenv("RM8_SHOT_FOLLOW")) rm8RolesFocus(fp); rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, fp[0], fp[2]); } }
 		if(getenv("RM8_SHOT_FOLLOW")){ float fp[3]; rm8RolesFocus(fp); rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, fp[0], fp[2]); }	// test hook: the shot looks at the turn flow's focus point
 		for(int f = 0; f < 3; f++){ rm8RenderReflection(sc, cam); rm8EventPreRender(cam); rm8InfoPreRender(cam); cam->clear(&bg, Camera::CLEARIMAGE | Camera::CLEARZ); cam->beginUpdate(); rm8RenderScene(sc, true); rm8PrtRender(cam); rm8RolesRender(); rm8RenderArticleGlass(); rm8RolesRenderLate(cam); if(haveUi){ rm8UiSetScreen(W, H); rm8HudRender(cam); } cam->endUpdate(); }
 		Image *img = cam->frameBuffer->toImage();
@@ -588,6 +617,7 @@ int main(int argc, char *argv[])
 
 	int dw, dh; SDL_GL_GetDrawableSize(win, &dw, &dh);
 	setupWindowCamera(cam, dw, dh);
+	setupWindowCamera(simCam, dw, dh);	// [N] the netplay rules camera (its size only places the step digits; the card range uses a fixed 4:3 screen in netplay)
 	rm8UiSetScreen(dw, dh);
 	rm8Log("drawable %dx%d", dw, dh);
 
@@ -667,6 +697,7 @@ int main(int argc, char *argv[])
 	auto startFromMenu = [&](){ startFromSetup(rm8MenuSetup()); };
 	// [V] game state 3 (exit confirmed in gsys) -> CApp_SwitchToGameScene(3): back to the map menu (0x4a17b0)
 	auto backToMenu = [&](){
+		rm8NetGameEnded();	// [N] a netplay game ends for this device (the host's exit ends it for everybody)
 		// [V] CApp_SwitchToGameScene(3) @0x405650 from 0x4a17b0: a story game goes back to the story role menu (single menu flow), a free game to the map menu
 		bool story = rm8StoryActive() && rm8StoryConfirmed();
 		unloadBoard();
@@ -713,9 +744,65 @@ int main(int argc, char *argv[])
 		rm8MovieStart(sc, cam, scripts, [&](){ rm8Log("movie test: done after %.1f s", rm8MovieElapsed()); run = false; });
 	}
 
+	// [N] netplay (net.h, net_ui.cpp, docs/netplay.md): the lobby / join screens are an app mode of their own (inNet); the session reaches the app through these hooks
+	bool inNet = false, netPagePending = false;
+	{
+		rm8NetInit(rm8UserDataDir(scenesRoot), game, scenesRoot);
+		rm8MenuHooks().multPage = [](){ if(rm8NetIsHost() && !rm8NetActive()) rm8NetLeave("主机关闭了房间"); };	// [N] the host left the room's menus for the free game page
+		Rm8NetAppHooks &nh = rm8NetAppHooks();
+		nh.startBoard = [&](const Rm8Setup &st){	// every device builds the same board: the session seed / date / options are set (net.cpp), the rules camera too
+			rm8MenuClose(); inMenu = false; inNet = false;
+			rm8NetPlaceSimCamera(simCam, sc, 0, 0); rm8RolesSetCamera(simCam);
+			beginBoard(st);
+			lastTick = SDL_GetTicks();
+		};
+		nh.loadBoard = [&](const std::vector<unsigned char> &rec) -> bool {	// a resync / reconnect: the host's day-wrap record through the normal load path
+			std::string p = rm8UserDataDir(scenesRoot) + "/net_snapshot.sav";
+			FILE *f = fopen(p.c_str(), "wb"); if(!f) return false;
+			fwrite(rec.data(), 1, rec.size(), f); fclose(f);
+			rm8MenuClose(); inMenu = false; inNet = false;
+			bool ok = loadSaved(p);
+			if(ok) fromMenu = true;
+			lastTick = SDL_GetTicks();
+			return ok;
+		};
+		nh.leave = [&](const std::string &why){	// the host ended the session / the connection is gone for good
+			if(fromMenu && !inMenu && !inNet){ unloadBoard(); rm8MenuGameSystemOpen(false); }
+			fromMenu = false; inMenu = false; inNet = true;
+			rm8MenuClose(); rm8NetUiOpen(); rm8NetUiNotice(why, 10);
+		};
+		nh.hostSetup = [&](){ inNet = false; inMenu = true; rm8MenuOpenPage(RM8PAGE_FREE_MAP); };	// the room = the original map menu, then the role menu (menu.cpp host mode)
+		nh.hostLoad = [&](){ rm8NetHostResumeArm(true); inNet = false; inMenu = true; rm8MenuOpenPage(RM8PAGE_NET_LOAD); };	// "读取联机存档": the free game's load menu
+		nh.backToMenu = [&](){ inNet = false; inMenu = true; rm8MenuOpenPage(RM8PAGE_FREE_GAME); };
+		nh.showMenus = [&](){ inNet = false; inMenu = true; };	// a client's mirrored room (rm8MenuNetMirror opened the page)
+		nh.showNetPage = [&](){ netPagePending = true; };	// (from a menu click handler: done in the loop)
+		// test hooks (docs/netplay.md section 8): RM8_NET_HOST=1 opens the RM8_NET_SETUP room at once (the host's role menu), RM8_NET_JOIN=<ip:port> joins at once,
+		// RM8_NET_RESUME=<record> hosts the resume of a saved game ("等待玩家中…")
+		if(getenv("RM8_NET_HOST") && haveUi && menuOk){
+			Rm8Setup st; std::vector<int> kinds; std::string err;
+			if(rm8NetTestSetup(st, kinds) && rm8NetHostListen(rm8NetPort(), err)){ inMenu = true; inNet = false; rm8MenuNetTestRoom(st, kinds); }
+			else rm8Log("net test: cannot host (%s)", err.c_str());
+		}else if(const char *nr = getenv("RM8_NET_RESUME")){ if(haveUi){ std::string err; if(!rm8NetHostResume(nr, err)) rm8Log("net test: cannot resume (%s)", err.c_str()); } }
+		else if(const char *nj = getenv("RM8_NET_JOIN")){ if(haveUi){ rm8MenuClose(); inMenu = false; inNet = true; rm8NetUiOpen(); rm8NetJoin(nj); } }
+	}
+
+	auto netUiShot = [&](){	// [N] test hook RM8_NET_UI_AUTO shot:<png> (net_ui.cpp): the screen as it is now (the 联机 page, the room menus, the board)
+		std::string ns = rm8NetUiTakeShot();
+		if(ns.empty()) ns = rm8NetMiniShotDue();	// [N] N4 test hook RM8_NET_MINI_SHOT (the minigame / the waiting board)
+		typedef void (*ReadPixelsFn)(int, int, int, int, unsigned, unsigned, void*);
+		ReadPixelsFn rp = ns.empty() ? nullptr : (ReadPixelsFn)SDL_GL_GetProcAddress("glReadPixels");
+		if(!rp) return;
+		std::vector<unsigned char> px((size_t)dw * dh * 4);
+		rp(0, 0, dw, dh, 0x1908, 0x1401, px.data());
+		Image *gi = Image::create(dw, dh, 32); gi->allocate();
+		for(int y = 0; y < dh; y++) memcpy(gi->pixels + (size_t)y * gi->stride, &px[(size_t)(dh - 1 - y) * dw * 4], (size_t)dw * 4);
+		writePNG(gi, ns.c_str()); gi->destroy(); rm8Log("net ui shot: %s", ns.c_str());
+	};
 	while(run){
 		SDL_Event e;
 		while(SDL_PollEvent(&e)){
+			if(inNet && rm8NetUiEvent(e, dw, dh)) continue;	// [N] the 联机 pages
+			if(inMenu && rm8MenuNetMode() && rm8NetUiMenuEvent(e)) continue;	// [N] the room overlay over the menus (the force start question)
 			if(inMenu && rm8MenuEvent(e, dw, dh)) continue;	// [A] the menus take pointer / key input
 			if(rm8MovieActive()){	// a cutscene: a click / tap / key skips the running script ([V] Cls_5dff48_vf13 @0x515b50); Esc / back skips all of them
 				bool used = true;
@@ -742,8 +829,8 @@ int main(int argc, char *argv[])
 			}
 			switch(e.type){
 			case SDL_QUIT: run = false; break;
-			case SDL_APP_WILLENTERBACKGROUND: case SDL_APP_DIDENTERBACKGROUND: paused = true; rm8AudioPause(true); break;
-			case SDL_APP_DIDENTERFOREGROUND: paused = false; rm8AudioPause(false); break;
+			case SDL_APP_WILLENTERBACKGROUND: case SDL_APP_DIDENTERBACKGROUND: if(!paused) rm8NetAppPaused(true); paused = true; rm8AudioPause(true); break;	// [N] netplay: the connections stay polled in the background
+			case SDL_APP_DIDENTERFOREGROUND: if(paused) rm8NetAppPaused(false); paused = false; rm8AudioPause(false); lastTick = SDL_GetTicks(); break;
 			case SDL_WINDOWEVENT:
 				if(e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED){
 					SDL_GL_GetDrawableSize(win, &dw, &dh);
@@ -754,8 +841,8 @@ int main(int argc, char *argv[])
 			case SDL_KEYDOWN:
 				if(e.key.keysym.scancode == SDL_SCANCODE_AC_BACK || e.key.keysym.sym == SDLK_ESCAPE){ if(rm8InfoClose()){} else if(fromMenu && rm8SaveUiVisible()) rm8SaveUiClose(); else if(fromMenu) rm8MenuGameSystemOpen(!rm8MenuGameSystemVisible()); else run = false; }	// [A] back / Esc: system menu (gsys) in a menu game; closes the save / load dialog first
 				else if(e.key.keysym.sym != SDLK_KP_ENTER && autoPlayKey(e.key.keysym.sym)){}	// [V] auto play keys (docs/autoplay.md)
-				else if(e.key.keysym.sym == SDLK_n) nextMap();
-				else if(e.key.keysym.sym == SDLK_SPACE || e.key.keysym.sym == SDLK_RETURN) rm8RolesHumanRoll();
+				else if(e.key.keysym.sym == SDLK_n){ if(!rm8NetActive()) nextMap(); }
+				else if(e.key.keysym.sym == SDLK_SPACE || e.key.keysym.sym == SDLK_RETURN){ if(!rm8NetInput(RM8C_ROLL)) rm8RolesHumanRoll(); }	// [N] netplay: a command
 				else if(e.key.keysym.sym == SDLK_PERIOD) rm8SkipToggleFast();	// [V] key 0x2E: InitConfig_SetSpeed(0x32), wait scale 0 / walk x14 (skip.h)
 				else if(e.key.keysym.sym == SDLK_KP_ENTER) rm8SkipRequest();	// [V] key 0xA7 = the numpad Enter acts as a left click (CApp_OnKeyDown @0x405A90): scene vf13
 				break;
@@ -828,7 +915,24 @@ int main(int argc, char *argv[])
 			fingers[0].held = true;	// [A] a long press on the board = the original's mouse press / hover on a role, a god, a plot or a landmark: its info box (infoscreens.cpp)
 			bool shown = rm8InfoBoardTap(cam, fingers[0].sx * dw, fingers[0].sy * dh); if(getenv("RM8_INFO_AUTO")) rm8Log("long press at (%.0f, %.0f) -> %d", fingers[0].sx * dw, fingers[0].sy * dh, shown);
 		}
+		rm8NetPoll();	// [N] sockets, heartbeats, lobby, commands (also in the menus and while paused, so the connection stays alive)
+		if(netPagePending){ netPagePending = false; rm8MenuClose(); inMenu = false; inNet = true; rm8NetUiOpen(); }	// [N] back to the 联机 page (a client left the room / the resume's load menu was left)
 		if(paused){ SDL_Delay(50); continue; }
+		if(inNet){	// [N] the lobby / join screens (net_ui.cpp)
+			Uint32 mnow = SDL_GetTicks(); float mdt = std::min(0.1f, (mnow - lastTick) / 1000.0f); lastTick = mnow;
+			rm8UiSetScreen(dw, dh);
+			if(rm8NetUiUpdate(mdt) == RM8NET_UI_CLOSED){ inNet = false; }
+			if(inNet){
+				RGBA dark = {18, 22, 36, 255};
+				cam->clear(&dark, Camera::CLEARIMAGE | Camera::CLEARZ);
+				cam->beginUpdate(); rm8NetUiRender(cam); cam->endUpdate();
+				netUiShot();	// test hook RM8_NET_UI_AUTO shot:<png> (net_ui.cpp): the screen of the 联机 page
+				cam->showRaster(flipFlags);
+				frames++;
+				if(maxFrames > 0 && frames >= maxFrames) run = false;
+			}
+			continue;
+		}
 		if(fromMenu && !inMenu && rm8MenuGameSystemExitRequested()) backToMenu();
 		{	// [A] a load chosen in the system menu: the board is rebuilt from the record ([V] game state 7 -> Save_LoadRecord @0x4a78f0)
 			std::string lp;
@@ -852,19 +956,27 @@ int main(int argc, char *argv[])
 		if(inMenu){	// [A] front-end menus (menu.cpp)
 			Uint32 mnow = SDL_GetTicks(); float mdt = std::min(0.1f, (mnow - lastTick) / 1000.0f); lastTick = mnow;
 			Rm8MenuResult mr = rm8MenuUpdate(mdt);
+			if(rm8MenuNetMode()) rm8NetUiMenuTick(mdt);	// [N] the room overlay (ready count, players, chat, force start) over the original menus
 			RGBA black = {0, 0, 0, 255};
 			cam->clear(&black, Camera::CLEARIMAGE | Camera::CLEARZ);
 			cam->beginUpdate(); rm8MenuRender(cam); cam->endUpdate();
 			rm8MenuPostRender(dw, dh);
+			if(rm8MenuNetMode()) netUiShot();	// [N]
 			cam->showRaster(flipFlags);
 			frames++;
 			if(maxFrames > 0 && frames >= maxFrames) run = false;
 			if(mr == RM8MENU_QUIT) run = false;
+			else if(mr == RM8MENU_NETPLAY){ rm8MenuClose(); inMenu = false; inNet = true; rm8NetUiOpen(); }	// [N] the 联机 button
 			else if(mr == RM8MENU_START_GAME) startFromMenu();
 			else if(mr == RM8MENU_PLAY_ENDING){	// finalMenu: CApp_PlayMovieRange(role - 1, 0); Movie_Finish @0x515d40 returns to the finalMenu (state 7)
 				std::vector<std::string> scripts = rm8StoryMovieScripts(rm8MenuMovieRole(), 1);
 				rm8MenuClose(); inMenu = false;
 				rm8MovieStart(sc, cam, scripts, [&](){ inMenu = true; rm8MenuOpenPage(RM8PAGE_FINAL); });
+			}
+			else if(mr == RM8MENU_LOAD_GAME && rm8NetHostResumeArmed()){	// [N] "读取联机存档": the record is hosted ("等待玩家中…" on the loaded board)
+				std::string lp, err; rm8MenuClose(); inMenu = false; rm8NetHostResumeArm(false);
+				if(!(rm8SaveTakeLoad(lp) && rm8NetHostResume(lp, err))){ rm8Log("net: resume failed: %s", err.c_str()); unloadBoard(); inNet = true; rm8NetUiOpen(); rm8NetUiNotice("无法继续联机存档：" + err, 8); }
+				lastTick = SDL_GetTicks();
 			}
 			else if(mr == RM8MENU_LOAD_GAME){	// [A] the load menu queued a record (rm8SaveRequestLoad): the board is rebuilt here
 				std::string lp; rm8MenuClose(); inMenu = false;
@@ -874,15 +986,37 @@ int main(int argc, char *argv[])
 			}
 			continue;
 		}
+		// [N] netplay: the lockstep runs the simulation in fixed steps; the commands of a frame are applied at its start on every device. true = the game ended
+		auto netSteps = [&](float realDt) -> bool {
+			int steps = rm8NetStepsDue(realDt);
+			bool gone = false;
+			for(int i = 0; i < steps && !gone && rm8NetActive(); i++){
+				float fp[3] = {0, 0, 0}; rm8RolesFocus(fp);
+				rm8NetPlaceSimCamera(simCam, sc, fp[0], fp[2]); rm8RolesSetCamera(simCam);
+				cardRangeView(sc);
+				rm8NetFrameBegin();
+				rm8UpdateScene(sc, RM8_NET_STEP);
+				rm8RolesUpdate(sc, RM8_NET_STEP);
+				rm8EventUpdate(RM8_NET_STEP);
+				rm8StoryUpdate(RM8_NET_STEP);
+				rm8AudioDetTick(RM8_NET_STEP);
+				rm8NetFrameEnd();
+				if(rm8StoryDispatch()) gone = true;	// the game ended (the board may be gone)
+			}
+			return gone;
+		};
 		if(haveMini && rm8MiniActive()){	// [V] the minigame host replaces the board (CMiniGameHost task); the event task collects the result
-			Uint32 mnow = SDL_GetTicks(); float mdt = std::min(0.1f, (mnow - lastTick) / 1000.0f); lastTick = mnow;
+			Uint32 mnow = SDL_GetTicks(); float realDt = (mnow - lastTick) / 1000.0f, mdt = std::min(0.1f, realDt); lastTick = mnow;
 			rm8MiniSetScreen(dw, dh); rm8UiSetScreen(dw, dh);
 			rm8MiniUpdate(mdt);
-			rm8EventUpdate(mdt);
+			if(rm8NetActive()){ if(netSteps(realDt)) continue; }	// [N] N4: the lockstep keeps running under the local minigame (every device runs the same frames; its result comes back as a command)
+			else rm8EventUpdate(mdt);
 			if(rm8MiniActive()){
 				RGBA black = {0, 0, 0, 255};
 				cam->clear(&black, Camera::CLEARIMAGE | Camera::CLEARZ);
+				if(rm8NetActive()) rm8NetHudRender(cam);	// [N] N4: the netplay line over the minigame (whose turn in 插海盗, notices); drawn by the minigame's rm8UiRender
 				cam->beginUpdate(); rm8MiniRender(cam); cam->endUpdate();
+				if(rm8NetActive()) netUiShot();	// [N] N4 test hook RM8_NET_MINI_SHOT (the player's minigame screen)
 				cam->showRaster(flipFlags);
 				frames++;
 				if(maxFrames > 0 && frames >= maxFrames) run = false;
@@ -892,6 +1026,11 @@ int main(int argc, char *argv[])
 		Uint32 now = SDL_GetTicks();
 		Uint64 c0 = SDL_GetPerformanceCounter();
 		float dt = std::min(0.1f, (now - lastTick) / 1000.0f);	// [V] the game clamps dt to 0.1 s
+		if(rm8NetActive()){	// [N] netplay: the lockstep (above)
+			bool gone = netSteps((now - lastTick) / 1000.0f);
+			lastTick = now;
+			if(gone) continue;
+		}else{
 		rm8UpdateScene(sc, dt);
 		rm8RolesSetCamera(cam);	// last frame's camera
 		{ static const bool autoRoll = getenv("RM8_AUTO_ROLL") != nullptr; if(autoRoll) rm8RolesHumanRoll(); }	// test hook (as in shot mode): a human seat presses GO whenever it waits
@@ -901,6 +1040,7 @@ int main(int argc, char *argv[])
 		rm8EventUpdate(dt);
 		rm8StoryUpdate(dt);	// the 14 s win scene, test hooks (story.cpp)
 		if(rm8StoryDispatch()) continue;	// a game state change of the story (restart / menus / ending): the board may be gone
+		}
 		Uint64 c1 = SDL_GetPerformanceCounter();
 		lastTick = now;
 		{
@@ -925,9 +1065,11 @@ int main(int argc, char *argv[])
 		rm8InfoPreRender(cam);	// the minimap raster (infoscreens.cpp)
 		cam->clear(&bg, Camera::CLEARIMAGE | Camera::CLEARZ);
 		cam->beginUpdate();
-		if(!maps.empty()){ rm8RenderScene(sc, true); rm8PrtRender(cam); rm8RolesRender(); rm8RenderArticleGlass(); rm8RolesRenderLate(cam); if(haveUi){ Uint64 h0 = SDL_GetPerformanceCounter(); rm8HudRender(cam); hudTicks += SDL_GetPerformanceCounter() - h0; } }
+		if(!maps.empty()){ rm8RenderScene(sc, true); rm8PrtRender(cam); rm8RolesRender(); rm8RenderArticleGlass(); rm8RolesRenderLate(cam); if(haveUi){ Uint64 h0 = SDL_GetPerformanceCounter(); rm8NetHudRender(cam); rm8HudRender(cam); hudTicks += SDL_GetPerformanceCounter() - h0; } }	// [N] rm8NetHudRender: the netplay status line (hidden outside netplay)
+
 		cam->endUpdate();
 		if(fromMenu){ rm8MenuGameTick(); rm8MenuPostRender(dw, dh); }	// [A] test hook for menu games (system menu, shots)
+		if(rm8NetActive()) netUiShot();	// [N]
 		{	// [A] test hook RM8_GAME_SHOT=<png>: in the interactive loop (--frames, story tests) write the frame 30 frames after the RM8_SHOT_ON_INFO / RM8_SHOT_ON_INFO_N trigger (hud.cpp), then quit
 			static const char *gs = getenv("RM8_GAME_SHOT"); static int trigF = -1;
 			if(gs){

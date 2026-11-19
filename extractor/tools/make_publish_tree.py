@@ -16,7 +16,7 @@ ROOT = os.path.dirname(EXT)
 sys.path.insert(0, HERE)
 import list_source_quotes as lsq  # noqa: E402
 
-PRIVATE_DOCS = {'code_map.md', 'naming_review_v2.md', 'exe_internals.md', 're_context.md', 'workflow.md'}
+PRIVATE_DOCS = {'code_map.md', 'naming_review_v2.md', 'exe_internals.md', 're_context.md', 'workflow.md', 'difficulty_ai_analysis.md', 'steam_diff.md'}	# the last two: private RE / design analyses
 ROOT_FILES = ['LICENSE', 'NOTICE.md', 'THIRD_PARTY_NOTICES.md', 'README.md', 'PUBLISH.md', '.gitignore']
 PORT_FILES = ['CMakeLists.txt', 'README.md', 'LICENSE', 'NOTICE.md', 'THIRD_PARTY_NOTICES.md', '.gitignore']
 PORT_DIRS = ['app', 'cmake', 'patches', 'viewer', 'loadtest', 'mgtest', 'deps_local']      # third-party sources are NOT published: extern/fetch_deps.py downloads them

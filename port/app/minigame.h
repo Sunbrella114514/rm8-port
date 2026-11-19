@@ -6,6 +6,7 @@
 #include "scene.h"
 #include <string>
 #include <vector>
+#include <functional>
 
 // one player as CMiniGameHost_vf16 @0x50DDD0 builds it (current player first)
 struct Rm8MiniPlayer {
@@ -25,7 +26,8 @@ struct Rm8MiniResult { int game = 0, count = 0; Rm8MiniPlayerResult p[8]; };
 struct Rm8MiniReward {
 	int seat = -1;
 	int ticketsDelta = 0;		// Role_AddTicket / Role_SubTicket (the caller clamps 0..9999)
-	std::vector<int> cards;		// card.bin indexes handed out (Id = index + 1) by Role_EnqueueMsg(4, idx, 0)
+	std::vector<int> cards;		// card.bin indexes handed out (Id = index + 1) by Role_EnqueueMsg(4, idx, cardEmote)
+	int cardEmote = 0;		// [V] the third argument of that message: 0 in MiniGameHost_Cleanup @0x50E300 for the rewards of games 18..23 (no emote), 1 for the bodyguard card of game 21 (@0x50E7AA)
 	int hospitalDays = 0;		// game 21: the defeated pirate (Role_EnqueueMsg(0x18, 3))
 	int textId = 0;			// string.bin id of the message (%s = player name, %d = tickets / days), 0 = none
 	int textArg = 0;
@@ -58,6 +60,26 @@ std::vector<Rm8MiniReward> rm8MiniRewards(const Rm8MiniResult &out);
 // computer players do not run the DLL: MiniGame_ExecuteGame @0x4FCB10. difficulty = init.txt difficuty (FUN_00401060(7)).
 // rand = the caller's rand() (MSVC sequence). reward.ticketsDelta > 0 shows textId; game 21 may give hospitalDays (textId 5317).
 Rm8MiniReward rm8MiniComputer(int game, int difficulty, int (*rand)());
+// [N] N4 netplay: 插海盗 (game 21) is played by every device of a netplay game together (docs/netplay.md section 9.3). The referee in the event task
+// (event_mini.cpp, lockstep: the same frames on every device) decides the pirate, every stab's outcome and the computer's / time-out choices from its own
+// seeded stream; the game on each device only shows those decisions in order and sends the choices of the local player (the players whose `human` is set
+// in rm8MiniStart are the ones played on this device; every other seat waits for the referee's actions).
+enum { RM8M21_ROT = 1, RM8M21_STAB = 2, RM8M21_AUTO = 3, RM8M21_DONE = 4, RM8M21_FINAL = 5 };	// the action kinds (RM8C_MINI_ACT b)
+struct Rm8Mini21Act {		// a resolved action of the referee
+	int turn = 0, kind = 0;	// turn = the stab number 0..; kind RM8M21_ROT (one 90 degree barrel step), RM8M21_STAB (the player's hole) or RM8M21_AUTO (the computer's choice)
+	int hole = -1, dir = 0;	// STAB / AUTO: the hole; ROT: the direction (1 = left); AUTO: the direction of the barrel turns that bring the hole into view
+	int angle = 180;	// STAB / AUTO: the barrel angle before it (the game snaps to it if it differs)
+	int outcome = 0;	// STAB / AUTO: 1 = the pirate is hit
+};
+struct Rm8Mini21Net {
+	bool on = false;
+	int defender = 0;					// the pirate (player index) the referee drew
+	std::function<void(int kind, int turn, int arg)> send;	// a choice of the local player (ROT: dir, STAB: hole, AUTO: its 7 s ran out)
+	std::function<void(int turn)> botDue;			// the game reached a turn it does not play (after the DLL's 0.7 s pause): the host may decide it now
+};
+void rm8Mini21NetSet(const Rm8Mini21Net &n);	// before rm8MiniStart(21, ...)
+void rm8Mini21NetClear();
+void rm8Mini21NetPush(const Rm8Mini21Act &a);	// the referee's actions, in order (also those resolved before the game started here)
 // standalone test entry (rm8_app --minigame N): own loop / --shot; returns the exit code. Env hooks: see docs/minigames/port.md
 struct SDL_Window;
 int rm8MiniStandalone(SDL_Window *win, rw::Camera *cam, int game, const std::string &shot, float shotTime, int W, int H, const std::string &scenesRoot);

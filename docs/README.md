@@ -19,6 +19,7 @@
 | `docs/assets_legal.md` | **素材分离与提取**：运行时读取的文件清单与权属分类、源码 / APK 审计、旧版 vs Steam 版差异、用户流程、安卓方案、提取器 `extractor/`（`rm8_extract.exe`）、app 需要的修改 |
 | `docs/map_format.md` | **地图格式** .map/.ltm（解析器 `scripts/mapfmt.py`，30 个文件解析无剩余） |
 | `docs/prt_format.md` / `docs/rolebin_format.md` | 粒子表、角色动画索引 role.bin（均解析无剩余） |
+| `docs/netplay.md` | **联机对战**（移植新增）：主机中转的确定性锁步、PC ↔ 安卓确定性改造（无 FMA、模拟相机、确定性语音时钟）、命令层、协议、快照重新同步与重连、界面、验证；阶段 N1（已完成）/ N2 / N4，故事合作搁置 |
 | `docs/autoplay.md` | **托管**（移植规格）：`+0x1B0 == 2`、开启 / 关闭路径（gsys→supply、F1..F4、任意键放回）、电脑代码路径、存档、触屏钩子、测试钩子与验证 |
 | `docs/turn_flow.md` | **掷骰与回合流程**（移植规格）：骰子动画、回合状态机与消息队列、C++↔Python 交接点、回合箭头与镜头、同格错开、交通工具 |
 | `docs/rules_land.md` | **地产层规则**（移植规格）：地块 / 街道 / 建筑的数据模型、地价 / 加盖费 / 过路费公式、落地消息链（0x12/0x11/0x1F/0x20/0x22）、人类界面与电脑 TBuy/TBuild、破产与拍卖、新的一天（物价指数、月息）、开局资金、表现层 id |

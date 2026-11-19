@@ -8,6 +8,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(LIBRW_TOOLS OFF CACHE BOOL "" FORCE)
 set(LIBRW_INSTALL OFF CACHE BOOL "" FORCE)
 set(RM8_SDL2_DIR ${CMAKE_CURRENT_LIST_DIR}/extern/SDL2-2.32.10)
+# [N] netplay determinism (docs/netplay.md section 2): PC (x86-64) and Android (arm64) must compute the same game. No fused multiply-add contraction
+# (clang contracts a*b+c into one FMA on arm64 by default; x86-64 without -mfma never does, so the PC code does not change) and a signed char as on x86
+# (arm64 defaults to unsigned). For every target, the libraries included (librw, CPython 2.4, SDL2).
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  add_compile_options(-ffp-contract=off)
+  if(ANDROID)
+    add_compile_options(-fsigned-char)
+  endif()
+endif()
 
 if(LIBRW_PLATFORM STREQUAL "GL3" AND LIBRW_GL3_GFXLIB STREQUAL "SDL2")
   set(SDL_TEST OFF CACHE BOOL "" FORCE)
@@ -49,22 +58,35 @@ if(NOT ANDROID AND NOT LIBRW_GL3_GFXLIB STREQUAL "SDL2")
 endif()
 
 if(LIBRW_PLATFORM STREQUAL "GL3" AND LIBRW_GL3_GFXLIB STREQUAL "SDL2")
-  set(RM8_APP_SRC app/rm8_app.cpp app/scene.cpp app/lmpipe.cpp app/water.cpp app/roles.cpp app/particles.cpp app/dice.cpp app/game.cpp app/python.cpp app/ui.cpp app/menu.cpp app/hud.cpp app/cards.cpp app/events.cpp app/event_bank.cpp app/event_shop.cpp app/event_ask.cpp app/event_npc.cpp app/event_court.cpp app/event_lottery.cpp app/event_magic.cpp app/event_power.cpp app/event_mini.cpp app/event_vendue.cpp app/event_wonder.cpp app/event_build.cpp app/audio.cpp app/boardfx.cpp app/present.cpp app/skip.cpp app/zh.cpp app/stock.cpp app/npc.cpp app/npc_act.cpp app/npc_ui.cpp app/collect.cpp app/story.cpp app/story_host.cpp app/news.cpp app/balance.cpp app/save.cpp app/save_ui.cpp app/infoscreens.cpp app/movie.cpp app/video.cpp app/menu_extra.cpp app/menu_anim.cpp app/minigame.cpp app/mg_gfx.cpp app/mg_3d.cpp app/mg_standalone.cpp app/mg_18.cpp app/mg_19.cpp app/mg_20.cpp app/mg_21.cpp app/mg_22.cpp app/mg_23.cpp)
+  # [N] netplay: the build hash header (cmake/netbuild.cmake), regenerated when an app source changes
+  file(GLOB RM8_NET_HASH_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/app/*.cpp ${CMAKE_CURRENT_LIST_DIR}/app/*.h ${CMAKE_CURRENT_LIST_DIR}/app/*.inc)
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/gen/netbuild.h
+    COMMAND ${CMAKE_COMMAND} -DSRC_DIR=${CMAKE_CURRENT_LIST_DIR} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/gen/netbuild.h -P ${CMAKE_CURRENT_LIST_DIR}/cmake/netbuild.cmake
+    DEPENDS ${RM8_NET_HASH_SRC} ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt ${CMAKE_CURRENT_LIST_DIR}/cmake/netbuild.cmake
+    COMMENT "netplay build hash")
+  set(RM8_APP_SRC app/rm8_app.cpp app/scene.cpp app/lmpipe.cpp app/water.cpp app/roles.cpp app/particles.cpp app/dice.cpp app/game.cpp app/python.cpp app/ui.cpp app/menu.cpp app/hud.cpp app/cards.cpp app/events.cpp app/event_bank.cpp app/event_shop.cpp app/event_ask.cpp app/event_npc.cpp app/event_court.cpp app/event_lottery.cpp app/event_magic.cpp app/event_power.cpp app/event_mini.cpp app/event_vendue.cpp app/event_wonder.cpp app/event_build.cpp app/audio.cpp app/boardfx.cpp app/present.cpp app/skip.cpp app/zh.cpp app/stock.cpp app/npc.cpp app/npc_act.cpp app/npc_ui.cpp app/collect.cpp app/story.cpp app/story_host.cpp app/news.cpp app/balance.cpp app/save.cpp app/save_ui.cpp app/rules_plus.cpp app/infoscreens.cpp app/movie.cpp app/video.cpp app/menu_extra.cpp app/menu_anim.cpp app/minigame.cpp app/mg_gfx.cpp app/mg_3d.cpp app/mg_standalone.cpp app/mg_18.cpp app/mg_19.cpp app/mg_20.cpp app/mg_21.cpp app/mg_22.cpp app/mg_23.cpp app/net.cpp app/net_socket.cpp app/net_ui.cpp ${CMAKE_CURRENT_BINARY_DIR}/gen/netbuild.h)
   if(ANDROID)
     add_library(main SHARED ${RM8_APP_SRC})          # SDLActivity loads libSDL2.so + libmain.so
     target_link_libraries(main PRIVATE librw SDL2::SDL2 py24 log android)
+    target_include_directories(main PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen)
   else()
     add_executable(rm8_app ${RM8_APP_SRC})
     target_link_libraries(rm8_app PRIVATE librw SDL2::SDL2main SDL2::SDL2 py24)
+    target_include_directories(rm8_app PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen)
     if(MINGW)
       target_link_options(rm8_app PRIVATE -static)
+      target_link_libraries(rm8_app PRIVATE ws2_32)	# [N] netplay sockets (Winsock)
     endif()
   endif()
 elseif(LIBRW_PLATFORM STREQUAL "GL3")
   add_executable(rm8_view viewer/rm8_view.cpp)
   target_link_libraries(rm8_view PRIVATE librw glfw)
-  add_executable(rm8_scene viewer/rm8_scene.cpp app/scene.cpp app/lmpipe.cpp app/water.cpp app/roles.cpp app/particles.cpp app/dice.cpp app/game.cpp app/python.cpp app/ui.cpp app/menu.cpp app/hud.cpp app/cards.cpp app/events.cpp app/event_bank.cpp app/event_shop.cpp app/event_ask.cpp app/event_npc.cpp app/event_court.cpp app/event_lottery.cpp app/event_magic.cpp app/event_power.cpp app/event_mini.cpp app/event_vendue.cpp app/event_wonder.cpp app/event_build.cpp app/audio.cpp app/boardfx.cpp app/present.cpp app/skip.cpp app/zh.cpp app/stock.cpp app/npc.cpp app/npc_act.cpp app/npc_ui.cpp app/collect.cpp app/story.cpp app/story_host.cpp app/news.cpp app/balance.cpp app/save.cpp app/save_ui.cpp app/infoscreens.cpp app/movie.cpp app/video.cpp app/menu_extra.cpp app/menu_anim.cpp app/minigame.cpp app/mg_gfx.cpp app/mg_3d.cpp app/mg_standalone.cpp app/mg_18.cpp app/mg_19.cpp app/mg_20.cpp app/mg_21.cpp app/mg_22.cpp app/mg_23.cpp)
+  add_executable(rm8_scene viewer/rm8_scene.cpp app/scene.cpp app/lmpipe.cpp app/water.cpp app/roles.cpp app/particles.cpp app/dice.cpp app/game.cpp app/python.cpp app/ui.cpp app/menu.cpp app/hud.cpp app/cards.cpp app/events.cpp app/event_bank.cpp app/event_shop.cpp app/event_ask.cpp app/event_npc.cpp app/event_court.cpp app/event_lottery.cpp app/event_magic.cpp app/event_power.cpp app/event_mini.cpp app/event_vendue.cpp app/event_wonder.cpp app/event_build.cpp app/audio.cpp app/boardfx.cpp app/present.cpp app/skip.cpp app/zh.cpp app/stock.cpp app/npc.cpp app/npc_act.cpp app/npc_ui.cpp app/collect.cpp app/story.cpp app/story_host.cpp app/news.cpp app/balance.cpp app/save.cpp app/save_ui.cpp app/rules_plus.cpp app/infoscreens.cpp app/movie.cpp app/video.cpp app/menu_extra.cpp app/menu_anim.cpp app/minigame.cpp app/mg_gfx.cpp app/mg_3d.cpp app/mg_standalone.cpp app/mg_18.cpp app/mg_19.cpp app/mg_20.cpp app/mg_21.cpp app/mg_22.cpp app/mg_23.cpp app/net.cpp app/net_socket.cpp app/net_ui.cpp)
   target_link_libraries(rm8_scene PRIVATE librw glfw py24)
+  if(MINGW)
+    target_link_libraries(rm8_scene PRIVATE ws2_32)	# [N] netplay sockets (the viewer never opens one, the app sources reference them)
+  endif()
+
   if(MINGW)
     target_link_options(rm8_view PRIVATE -static)
     target_link_options(rm8_scene PRIVATE -static)

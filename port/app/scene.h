@@ -171,4 +171,5 @@ void rm8DiceClear();
 bool rm8RolesGetPos(int k, float pos[3]);
 // index of the character whose (demo) turn it is, -1 if none
 int rm8RolesCurrent();
+int rm8Difficulty();	// [V] InitTxt_GetParam(7): the current difficulty option 1..3 (menu.cpp, read live at each decision)
 extern int rm8GameSpeed;	// init.txt "speed" (1..; game default 4): walking time scale (speed-1)/4+1

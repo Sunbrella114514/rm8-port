@@ -517,6 +517,8 @@ const char *rm8NpcName(int h){ Obj *o = byHandle(h); return o && o->def ? o->def
 int rm8NpcShape(int seat){ return rm8GameShape(seat); }
 int rm8NpcBully(int owner){ return owner >= 0 && owner < (int)g_seat.size() ? g_seat[owner].bullyBy : -1; }
 int rm8NpcTimeBomb(int seat){ return seat >= 0 && seat < (int)g_seat.size() ? g_seat[seat].bomb : 0; }
+int rm8NpcBombOwner(int seat){ return seat >= 0 && seat < (int)g_seat.size() ? g_seat[seat].bombOwner : -1; }
+void rm8NpcSetBombOwner(int seat, int owner){ if(seat >= 0 && seat < (int)g_seat.size()) g_seat[seat].bombOwner = owner; }
 
 void rm8NpcStory(const int p[2]){ g_storyPuzzles[0] = p ? p[0] : 0; g_storyPuzzles[1] = p ? p[1] : 0; }
 

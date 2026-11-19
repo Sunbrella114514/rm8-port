@@ -25,10 +25,13 @@ struct Rm8Setup {
 };
 
 // [A] game options the option menu edits (init.txt [param] in the original, Config_ApplySetting @0x50a710); saved to <data dir>/rm8_settings.txt
-struct Rm8Options { int music = 3, sound = 4, speed = 5, difficulty = 3, fullscreen = 0, character = 6; bool simplified = true; };
+// [V] defaults of InitConfig_LoadInitTxt @0x401080 when there is no init.txt: speed (internal, ini + 2) 4, difficulty 1, sound 4, music 3
+struct Rm8Options { int music = 3, sound = 4, speed = 4, difficulty = 1, fullscreen = 0, character = 6; bool simplified = true; bool plus = false; /* [R] rules_plus: the enhanced AI / house rules for the next game (rm8_settings.txt key rules_plus) */
+	int netPort = 47000; std::string netLast; /* [N] netplay: the host's listen port (net_port), the last address joined (net_last) */
+	std::string netName; /* [N] netplay: the player name of this device (net_name; "" = the default from the player id) */ };
 
 // RM8MENU_PLAY_ENDING: the finalMenu (ending movie viewer) asks for the ending movies of rm8MenuMovieRole(); the app plays them and reopens the finalMenu page
-enum Rm8MenuResult { RM8MENU_RUNNING, RM8MENU_START_GAME, RM8MENU_QUIT, RM8MENU_LOAD_GAME, RM8MENU_MINIGAME, RM8MENU_PLAY_ENDING };
+enum Rm8MenuResult { RM8MENU_RUNNING, RM8MENU_START_GAME, RM8MENU_QUIT, RM8MENU_LOAD_GAME, RM8MENU_MINIGAME, RM8MENU_PLAY_ENDING, RM8MENU_NETPLAY /* [N] the 联机 button of the mult page */ };
 
 // Other modules plug in here (all optional; an unset hook makes the entry unavailable / returns false).
 struct Rm8SaveSlotInfo { int year = 0, month = 0, day = 0, hour = 0, minute = 0, map = 0; std::vector<int> charIds; };	// [V] 0x50cf20: header +2/+6/+8/+10, +0x10 map, +0x14 count, +0x18.. roles
@@ -36,9 +39,19 @@ struct Rm8MenuHooks {
 	std::function<bool(int slot, bool multi, Rm8SaveSlotInfo &out)> saveSlotInfo;	// slmenu: header of record_NN.sav (story) / record_mNN.sav (multi); false = empty slot
 	std::function<bool(int slot, bool multi)> loadGame;				// slmenu: load the slot (CApp_LoadSavedGame @0x406380); true = the game started
 	std::function<bool(int game, const Rm8Setup &setup)> startMiniGame;		// ltgameMenu: CApp_SwitchToMiniGame(n) @0x50ddd0; true = started
+	std::function<void()> multPage;							// [N] the free game page (mult) was entered (netplay: an armed host stops listening)
 	std::function<void(const Rm8Options &o)> applyOptions;				// option menu / startup: music + sound levels, speed, difficulty
+	// [N] netplay room on the original free-game screens (docs/netplay.md section 5)
+	std::function<void()> netStart;							// host: the role menu's start (O) in a room: start / ask about the force start
+	std::function<void()> netReady;							// client: O on the mirrored map / role menu toggles the ready flag
+	std::function<void()> netLeave;							// client: X / back on the mirrored screens leaves the room
+	std::function<void(int charId, int outfit)> netPickRole;				// client: a character (outfit -1 = the first free one) / an outfit (charId -1) for its own seat
 };
 Rm8MenuHooks &rm8MenuHooks();
+
+// ---- options (the one source of difficulty / speed / volumes / window mode)
+void rm8MenuLoadOptions(const std::string &gameDir, const std::string &scenesRoot);	// reads init.txt + rm8_settings.txt and applies them; rm8MenuInit calls it, the test modes without menus call it themselves
+// rm8Difficulty() (scene.h) = [V] InitTxt_GetParam(7), live: the current option slider (1..3); RM8_DIFFICULTY overrides for tests
 
 // ---- lifecycle (rm8_app.cpp)
 // Loads the .ui files, the stage list and the options; true if the menus can run (needs the packs and scenes/ui).
@@ -47,7 +60,8 @@ void rm8MenuOpen(bool showLogo, bool backToMapMenu);	// start the menus (main me
 void rm8MenuClose();					// hide the menu screens (the game starts)
 // story pages the game states open directly (CApp_SwitchToGameScene @0x405650): ROLES = state 3 of a story game (the player declined "<str#93>", role menu),
 // MAP_NEXT = state 4 (a stage was cleared: the map menu starts in its state 0xB, the host announces the next choice), FINAL = state 7 (back from an ending movie)
-enum Rm8MenuPage { RM8PAGE_ROLES = 1, RM8PAGE_MAP_NEXT, RM8PAGE_FINAL };
+enum Rm8MenuPage { RM8PAGE_ROLES = 1, RM8PAGE_MAP_NEXT, RM8PAGE_FINAL, RM8PAGE_FREE_GAME /* [N] the mult page */, RM8PAGE_FREE_MAP /* [N] the free game's map menu */, RM8PAGE_NET_LOAD /* [N] the free game's load menu for a netplay resume */ };
+
 void rm8MenuOpenPage(Rm8MenuPage page);
 int rm8MenuMovieRole();					// the role of the ending movie the finalMenu asked for (RM8MENU_PLAY_ENDING)
 void rm8MenuPlayStaffCredits();				// [V] the staff movie after a story ending (Movie_Finish @0x515d40, docs/media_collect.md); back to the single menu when it ends
@@ -60,6 +74,24 @@ std::string rm8MenuMapDir(int mapId);			// scene folder of a setup map id ("01".
 const Rm8Setup &rm8MenuSetup();				// valid after RM8MENU_START_GAME / RM8MENU_MINIGAME
 const Rm8Options &rm8MenuOptions();
 void rm8MenuSetLoadedSetup(const Rm8Setup &st);		// a loaded record's setup becomes the menu's (the story map menu after a stage cleared in a loaded game needs the hero, bug 49)
+void rm8MenuSetNetLast(const std::string &addr);		// [N] netplay: remember the last joined address (rm8_settings.txt net_last)
+bool rm8MenuRoleInfo(int id, std::string &name, std::string &pic);	// [N] roleinfo name / picture (p_NN) of a character id (the netplay lobby)
+void rm8MenuSetNetName(const std::string &name);		// [N] netplay: this device's player name (rm8_settings.txt net_name, "" = the default)
+
+// ---- [N] netplay room (docs/netplay.md section 5): the host sets the free game up in the ORIGINAL map menu (map + the five start options) and role menu
+// (seats, outfits); a seat's human / computer tag gains a third state there, "waiting for a network player". The clients see the same screens mirrored
+// (read only: O = ready, X = leave, a character / outfit click asks the host for their own seat). net.cpp publishes / applies the view.
+enum Rm8MenuNetMode { RM8MENU_NET_OFF = 0, RM8MENU_NET_HOST, RM8MENU_NET_MIRROR };
+struct Rm8MenuNetSeat { int kind = 2, serial = 0; };	// kind 0 a seat of the host's device, 1 a network player's seat, 2 computer; serial: stays with the seat while others are removed
+struct Rm8MenuNetView { int screen = 0; Rm8Setup setup; int sel = -1; std::vector<Rm8MenuNetSeat> seats; };	// screen 0 none, 1 map menu, 2 role menu
+void rm8MenuNetSetMode(int mode);
+int rm8MenuNetMode();
+bool rm8MenuNetGet(Rm8MenuNetView &v);				// host: the current screen, setup and seat kinds
+void rm8MenuNetMirror(const Rm8MenuNetView &v, int mySeat);	// client: the host's screen with the host's values (opens the menus on that page)
+bool rm8MenuNetSetSeatRole(int serial, int charId, int outfit);	// host: a client's character / outfit request for its seat (false = taken / invalid)
+bool rm8MenuNetLoadPage();					// the load menu was opened for a netplay resume (RM8PAGE_NET_LOAD): its pick is hosted, not loaded locally
+void rm8MenuNetTestRoom(const Rm8Setup &st, const std::vector<int> &kinds);	// test hook (RM8_NET_HOST + RM8_NET_SETUP): the host's role menu with this setup / seat kinds
+
 
 // ---- in-game system menu (gsys.ui, opened by gmaindlg button 10 @0x4a2e10 / Esc / Android back). "exit" -> exit.ui -> back to the menus
 void rm8MenuGameSystemOpen(bool open);

@@ -82,6 +82,10 @@ float now(){ return (float)g_time; }
 static std::string g_scenesRoot;
 const std::string &scenesRoot(){ return g_scenesRoot; }
 void setScenesRoot(const std::string &s){ g_scenesRoot = s; }
+static Rm8Mini21Net g_net21;			// [N] N4 (minigame.h)
+static std::vector<Rm8Mini21Act> g_net21Acts;
+const Rm8Mini21Net &net21(){ return g_net21; }
+const std::vector<Rm8Mini21Act> &net21Acts(){ return g_net21Acts; }
 Rm8Ui *introLoad(const char *name, int textId, std::function<void()> onOk)
 {
 	Rm8Ui *u = rm8UiLoad(name, RM8UI_DIALOG);
@@ -221,6 +225,7 @@ bool rm8MiniFinish(Rm8MiniResult &out)
 	if(!g_game) return false;
 	out = Rm8MiniResult(); out.game = g_game->eventId;
 	g_game->getResult(out);
+	if(const char *fs = getenv("RM8_MINI_FORCE_SCORE")) if(out.count > 0 && out.game != 21) out.p[0].score = atoi(fs);	// [A] test hook: the host reward table for a chosen score (tools: work_rules/mg_cards_check.sh)
 	delete g_game; g_game = nullptr;
 	mg::introHide(); mg::freeAllSprites();
 	g_done = false;
@@ -256,19 +261,24 @@ std::vector<Rm8MiniReward> rm8MiniRewards(const Rm8MiniResult &out)
 		if(bigSeat < 0){
 			if(aSeat >= 0){
 				if(Rm8MiniReward *a = find(aSeat)){ a->textId = 5317; a->textArg = 3; a->hospitalDays = 3; a->reaction = 4; }	// [V] string 5317 (name, 3 days), (0x18, 3)
-				if(bSeat >= 0) if(Rm8MiniReward *b = find(bSeat)){ b->textId = 5303; b->cards.push_back(0x2e); }	// [V] string 5303 + card 0x2e (Role_EnqueueMsg(4, 0x2e, 1))
+				if(bSeat >= 0) if(Rm8MiniReward *b = find(bSeat)){ b->textId = 5303; b->cards.push_back(0x2e); b->cardEmote = 1; }	// [V] string 5303 + card index 0x2e = Id 47 鑽石卡 (not the 保鏢卡 Id 46 the old notes say) (Role_EnqueueMsg(4, 0x2e, 1) @0x50E7AA)
 			}
 		}else if(Rm8MiniReward *w = find(bigSeat)){ w->textId = 5318; w->textArg = bigScore; w->reaction = 1; w->bestScore = bigScore; }	// [V] string 5318, FUN_004aa5d0(4, score)
 		return r;
 	}
 	const Rm8MiniPlayerResult &p = out.p[0];
 	Rm8MiniReward e; e.seat = p.seat;
-	if(p.score > 0){	// [V] only for a positive score
+	if(p.score > 0){	// [V] only for a positive score (0x50E91E: cmp score, 0; jle end): no score, no tickets, no card
+		// Cards (card.bin index, Id = index + 1), Role_EnqueueMsg(4, idx, 0), all [V] 0x50E9CF..0x50EB0D, derived again from the disassembly by work_rules/mg_cards_asm.py:
+		//   18  100..179 0x14 均富卡 | >= 180 0x12 核子飛彈          19  any score > 0 0x2f 地王卡 (0x50EA3D is OUTSIDE the `score >= 500` block that gives 0x12 0x2c 0x14 first)
+		//   20  100..149 0x11 飛彈卡 | >= 150 0x12 核子飛彈          22  150..998 0x2c 老千卡 | 999 0x2c 0x2f 0x12   23  150..159 0x2e 鑽石卡 | >= 160 0x30 隱形卡
+		// Only the human (the player of the DLL game) gets them: the computer path (rm8MiniComputer) gives tickets only. Games 19 / 22 give the rare 0x2f 地王卡.
 		int sid = game + 0x14b0; if(sid > 0x14c5) sid++;	// 5314 .. 5320 (game 21 has its own)
 		e.textId = sid; e.textArg = p.score; e.ticketsDelta = p.score; e.bestScore = p.score;
 		switch(game){
 		case 18: if(p.score < 180){ if(p.score >= 100) e.cards.push_back(0x14); } else e.cards.push_back(0x12); break;
-		case 19: if(p.score >= 500){ e.cards.push_back(0x12); e.cards.push_back(0x2c); e.cards.push_back(0x14); } e.cards.push_back(0x2f); break;
+		case 19: break;	// [A] user decision 2026-11-18: the treasure dig never gives a card. The original (MiniGameHost_Cleanup @0x50E300) gives Id 48 for any score > 0 and, at >= 500,
+		                	// also Ids 19 / 45 / 21: was idx 0x12 0x2c 0x14 + 0x2f
 		case 20: if(p.score < 150){ if(p.score >= 100) e.cards.push_back(0x11); } else e.cards.push_back(0x12); break;
 		case 22: if(p.score < 999){ if(p.score > 0x95) e.cards.push_back(0x2c); } else { e.cards.push_back(0x2c); e.cards.push_back(0x2f); e.cards.push_back(0x12); } break;
 		case 23: if(p.score < 160){ if(p.score > 0x95) e.cards.push_back(0x2e); } else e.cards.push_back(0x30); break;
@@ -302,3 +312,7 @@ Rm8MiniReward rm8MiniComputer(int game, int diff, int (*rnd)())
 
 void rm8MiniDrawHeadless(){ if(g_game && !g_done) g_game->draw(); }
 void rm8MiniSetScreen(int w, int h){ mg::gfxSetScreen(w, h); }
+// [N] N4 (minigame.h): game 21 of a netplay game
+void rm8Mini21NetSet(const Rm8Mini21Net &n){ mg::g_net21 = n; mg::g_net21Acts.clear(); }
+void rm8Mini21NetClear(){ mg::g_net21 = Rm8Mini21Net(); mg::g_net21Acts.clear(); }
+void rm8Mini21NetPush(const Rm8Mini21Act &a){ if(mg::g_net21.on) mg::g_net21Acts.push_back(a); }

@@ -444,11 +444,11 @@ bool g_dogPiece = false;
 void resetSeatStory(){ g_ss.clear(); g_dogPiece = false; }
 bool heroOnly(int seat){ return g_onBoard && g_story && seat == 0; }
 
-long netWorth(int seat)	// [V] Role_CalculateNetCash(1) @0x490140: deposit + cash - loan + stock value + sum of the plot prices (Terra_CalcPrice(1))
+int32_t netWorth(int seat)	// [N] [V] Role_CalculateNetCash(1) @0x490140: deposit + cash - loan + stock value + sum of the plot prices (Terra_CalcPrice(1))
 {
 	if(rm8TurnStatus(seat) == 7) return 0;
-	long v = rm8GameDeposit(seat) + rm8GameCash(seat) - rm8EventLoan(seat) + rm8StockValue(seat);
-	for(int t = 0, N = rm8GameTerraCount(); t < N; t++) if(rm8GameTerraOwner(t) == seat) v += rm8GameTerraPrice(t);
+	int32_t v = rm8Add32(rm8Sub32(rm8Add32(rm8GameDeposit(seat), rm8GameCash(seat)), rm8EventLoan(seat)), rm8StockValue(seat));	// [N] int32_t; 32-bit wrap like the original's adds
+	for(int t = 0, N = rm8GameTerraCount(); t < N; t++) if(rm8GameTerraOwner(t) == seat) v = rm8Add32(v, rm8GameTerraPrice(t));
 	return v;
 }
 // [V] Role_CountOwnTerras @0x48c430: kind 0 residential, 1 any commercial, 2 / 3 / 4 institute / chain store / hotel, 9 all; level in [lo, hi]

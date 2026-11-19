@@ -301,7 +301,7 @@ void gfxTri(float x0, float y0, float x1, float y1, float x2, float y2, uint32_t
 void freeAllSprites(){ for(auto &s : g_spr) s.used = false; freeAllModels(); }
 
 // ---- sound / music / strings
-int snd(int id, float vol, int loops){ return rm8SndPlay(id, loops, vol > 1.0f ? 1.0f : vol); }
+int snd(int id, float vol, int loops){ return rm8SndPlayLocal(id, loops, vol > 1.0f ? 1.0f : vol); }	// [N] N4: = rm8SndPlay outside netplay; online the deterministic voice clock never sees the minigame
 void sndStop(int handle){ rm8SndStop(handle); }
 void music(int track){ rm8MusicPlay(track); }
 const std::string &str(int id){ return rm8Str(id); }

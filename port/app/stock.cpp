@@ -8,6 +8,7 @@
 // array, +0x30 closed days, +0x34 / +0x38 market event % / days, +0x3C market change rate.
 #include "stock.h"
 #include "cards.h"
+#include "events.h"
 #include "ui.h"
 #include <cstdio>
 #include <cstdlib>
@@ -73,8 +74,8 @@ void loadDefs()
 }
 
 // ---- rounding
-int ftolD(double v){ return (int)v; }	// [V] _ftol @0x5c58b8 truncates
-long roundInt(double v){ long t = (long)v; return v - t >= 0.5 ? t + 1 : t; }	// Float_RoundToInt @0x45ed20
+int32_t ftolD(double v){ return rm8F2I32(v); }	// [V] _ftol @0x5c58b8 truncates; [N] out of range = 0x80000000 like x87 / x86-64 (a plain (int) saturates on arm64)
+int32_t roundInt(double v){ int32_t t = rm8F2I32(v); return v - t >= 0.5 ? t + 1 : t; }	// [N] Float_RoundToInt @0x45ed20
 
 // [V] Stock_RoundPrice @0x4b9870: < 5: 0.01 steps; < 15: 0.05; < 50: 0.1; < 150: 0.5; else whole numbers (truncated first)
 float roundPrice(float x)
@@ -112,18 +113,18 @@ void updateBiggest(int si)
 void refreshHolders(){ for(int si : g_main) updateBiggest(si); }	// [V] Stock_RefreshAllHolders @0x4bc840
 
 // [V] Stock_BuyPartial @0x498dd0: n = min(wanted, left); the return value is ftol(WANTED * price) (the asm reads param_2, not n)
-long buyPartial(int seat, int si, int want)
+int32_t buyPartial(int seat, int si, int want)	// [N] int32_t
 {
 	Stock &s = S[si];
 	int n = std::min(want, s.remain);
 	s.remain -= n;
-	long ret = ftolD((double)want * s.cur);
+	int32_t ret = ftolD((double)want * s.cur);	// [N] int32_t
 	if(Hold *h = findHold(seat, si)){ h->qty += n; h->last = s.cur; h->cost = (float)((double)n * s.cur + h->cost); return ret; }
 	g_hold[seat].push_back({si, n, s.cur, (float)((double)n * s.cur + 0.0)});
 	return ret;
 }
 // [V] Stock_SellPartial @0x499010: n (< 0 or more than held = all) shares back to the market, the cost basis shrinks proportionally; returns ftol(n * price)
-long sellPartial(int seat, int si, int n)
+int32_t sellPartial(int seat, int si, int n)	// [N] int32_t
 {
 	Hold *h = findHold(seat, si);
 	if(!h) return 0;
@@ -131,16 +132,16 @@ long sellPartial(int seat, int si, int n)
 	h->cost = (float)((double)h->cost - ((double)n * h->cost) / (double)h->qty);
 	h->qty -= n;
 	S[si].remain += n;
-	long ret = ftolD((double)n * S[si].cur);
+	int32_t ret = ftolD((double)n * S[si].cur);	// [N] int32_t
 	if(h->qty == 0) g_hold[seat].erase(g_hold[seat].begin() + (h - &g_hold[seat][0]));
 	return ret;
 }
 // [V] Stock_CalculateTotalValue @0x4994c0: sum of ftol(shares * price) (index < 0), or of one holding
-long holdingsValue(int seat, int k)
+int32_t holdingsValue(int seat, int k)	// [N] int32_t
 {
 	if(seat < 0 || seat >= (int)g_hold.size()) return 0;
-	long sum = 0;
-	if(k < 0){ for(Hold &h : g_hold[seat]) sum += ftolD((double)h.qty * S[h.stock].cur); }
+	int32_t sum = 0;	// [N] int32_t
+	if(k < 0){ for(Hold &h : g_hold[seat]) sum = rm8Add32(sum, ftolD((double)h.qty * S[h.stock].cur)); }	// [N] 32-bit wrap like the original's add
 	else if(k < (int)g_hold[seat].size()) sum = ftolD((double)g_hold[seat][k].qty * S[g_hold[seat][k].stock].cur);
 	return sum;
 }
@@ -300,12 +301,12 @@ bool rm8StockOpen()
 }
 
 // ======================================================================== links
-long rm8StockValue(int seat){ return holdingsValue(seat, -1); }
+int32_t rm8StockValue(int seat){ return holdingsValue(seat, -1); }	// [N] int32_t
 
-long rm8StockSellAll(int seat)
+int32_t rm8StockSellAll(int seat)	// [N] int32_t
 {
 	if(seat < 0 || seat >= (int)g_hold.size()) return 0;
-	long sum = 0;
+	int32_t sum = 0;	// [N] int32_t
 	for(Hold &h : g_hold[seat]){ S[h.stock].remain += h.qty; sum = ftolD((double)h.qty * S[h.stock].cur + (double)sum); }	// Stock_SellAll @0x4992c0
 	g_hold[seat].clear();
 	refreshHolders();
@@ -315,13 +316,13 @@ long rm8StockSellAll(int seat)
 void rm8StockMarketEvent(float pct, int days){ g_mktPct = pct; g_mktDays = days; }	// [V] Stock_SetField34_38 @0x4bc650
 void rm8StockCloseMarket(int days){ g_closed = days; }					// [V] Stock_Array_SetField(days, -1) @0x4b9370
 int rm8StockClosedDays(){ return g_closed; }						// [V] DAT_006403c4 + 0x30 (the news boom / crash / outage / liquidation need it < 1)
-long rm8StockLiquidateAll()	// [V] News_EventStockLiquidate @0x4b64e0: every role that is not bankrupt sells all, the deposit gets the money
+int32_t rm8StockLiquidateAll()	// [N] [V] News_EventStockLiquidate @0x4b64e0: every role that is not bankrupt sells all, the deposit gets the money
 {
-	long total = 0;
+	int32_t total = 0;	// [N] int32_t
 	for(int k = 0; k < rm8TurnRoleCount(); k++){
 		if(!seatAlive(k)) continue;
-		long v = rm8StockSellAll(k);
-		if(v > 0){ rm8GameAddMoney(k, v, true); total += v; }
+		int32_t v = rm8StockSellAll(k);	// [N] int32_t
+		if(v > 0){ rm8GameAddMoney(k, v, true); total = rm8Add32(total, v); }	// [N] 32-bit wrap
 	}
 	return total;
 }
@@ -345,7 +346,7 @@ void rm8StockSwapHoldings(int a, int b)	// [V] Role_SwapAssetsWithRole @0x48bf70
 }
 
 int rm8StockCount(){ return (int)g_main.size(); }
-long rm8StockFlow(int i){ return i >= 0 && i < (int)g_main.size() ? S[g_main[i]].remain : 0; }
+int32_t rm8StockFlow(int i){ return i >= 0 && i < (int)g_main.size() ? S[g_main[i]].remain : 0; }	// [N] int32_t
 double rm8StockCur(int i){ return i >= 0 && i < (int)g_main.size() ? S[g_main[i]].cur : 0.0; }
 double rm8StockAvr(int i)	// [V] py_Stock_AvrPrice @0x501650: sum of the 144 history prices / 144
 {
@@ -363,7 +364,7 @@ int rm8StockHoldStock(int seat, int k)
 	return -1;
 }
 double rm8StockHoldPrice(int seat, int k){ return seat >= 0 && seat < (int)g_hold.size() && k >= 0 && k < (int)g_hold[seat].size() ? g_hold[seat][k].last : 0.0; }
-long rm8StockHoldValue(int seat, int k){ return holdingsValue(seat, k); }
+int32_t rm8StockHoldValue(int seat, int k){ return holdingsValue(seat, k); }	// [N] int32_t
 std::string rm8StockHoldName(int seat, int k){ return seat >= 0 && seat < (int)g_hold.size() && k >= 0 && k < (int)g_hold[seat].size() ? S[g_hold[seat][k].stock].name : std::string(); }	// [A] playerinfo (infoscreens.cpp): UI_DisplayStocks_Page1 @0x4ab480 "%s %5d"
 int rm8StockHoldQty(int seat, int k){ return seat >= 0 && seat < (int)g_hold.size() && k >= 0 && k < (int)g_hold[seat].size() ? g_hold[seat][k].qty : 0; }
 
@@ -372,39 +373,39 @@ bool rm8StockAiTrade(int seat)
 {
 	if(S.empty() || seat < 0 || seat >= (int)g_hold.size() || !rm8StockOpen()) return false;
 	const char *sc = rm8TurnAiScript(seat);
-	long res = 0;
+	int32_t res = 0;	// [N] int32_t
 	if(holdingsValue(seat, -1) > 0 && rm8PyCallAI(sc, "SSellAll", 0, res) && res != 0){	// AI_CallScript(9, 0)
-		long money = rm8StockSellAll(seat);
+		int32_t money = rm8StockSellAll(seat);	// [N] int32_t
 		rm8GameAddMoney(seat, money, true);	// Role_AddMoney(money, 1, 0): the deposit
-		rm8Log("stock: seat %d sells all for %ld", seat, money);
+		rm8Log("stock: seat %d sells all for %d (loan %d, %d days to the due date, cash %d, deposit %d)", seat, money, rm8EventLoan(seat), rm8EventLoanDaysLeft(seat), rm8GameCash(seat), rm8GameDeposit(seat));
 		rm8TurnEnqueue(seat, 0x1B, rm8GamePushText(rm8StrFmt(283, rm8TurnName(seat))), 0);	// str 283 "%s<str#283>"
 		g_aiCool[seat] = 5;
 		return true;
 	}
 	if(g_aiCool[seat] > 0){ g_aiCool[seat]--; return false; }
 	bool did = false;
-	long idx = 0;
+	int32_t idx = 0;	// [N] int32_t
 	rm8PyCallAI(sc, "SSell", 0, idx);	// AI_CallScript(5, 0)
 	while(0 < idx){	// [V] "0 < idx": slot 0 is never sold by this loop (as the original)
 		if(idx >= (int)g_main.size()) break;
 		int si = g_main[idx];
-		long money = sellPartial(seat, si, -1);
+		int32_t money = sellPartial(seat, si, -1);	// [N] int32_t
 		updateBiggest(si);
-		rm8Log("stock: seat %d sells %s for %ld", seat, S[si].name.c_str(), money);
+		rm8Log("stock: seat %d sells %s for %d", seat, S[si].name.c_str(), money);
 		rm8GameAddMoney(seat, money, true);
 		did = true;
-		long next = 0;
+		int32_t next = 0;	// [N] int32_t
 		if(!rm8PyCallAI(sc, "SSell", 0, next)) break;
 		if(next == idx) break;	// [A] guard against a script that keeps naming the same (already sold) stock
 		idx = next;
 	}
 	rm8PyCallAI(sc, "SBuy", 0, idx);	// AI_CallScript(4, 0)
-	if(g_log) rm8Log("stock: seat %d (%s) step: SBuy -> %ld, cash %ld deposit %ld", seat, sc ? sc : "-", idx, rm8GameCash(seat), rm8GameDeposit(seat));
-	long qty = 0;
+	if(g_log) rm8Log("stock: seat %d (%s) step: SBuy -> %d, cash %d deposit %d", seat, sc ? sc : "-", idx, rm8GameCash(seat), rm8GameDeposit(seat));
+	int32_t qty = 0;	// [N] int32_t
 	if(-1 < idx && idx < (int)g_main.size() && rm8PyCallAI(sc, "SBuySum", idx, qty) && 0 < qty){	// AI_CallScript(6, idx)
 		int si = g_main[idx];
-		long cost = buyPartial(seat, si, (int)qty);
-		rm8Log("stock: seat %d buys %ld %s at %.2f (cost %ld)", seat, qty, S[si].name.c_str(), S[si].cur, cost);
+		int32_t cost = buyPartial(seat, si, (int)qty);	// [N] int32_t
+		rm8Log("stock: seat %d buys %d %s at %.2f (cost %d)", seat, qty, S[si].name.c_str(), S[si].cur, cost);
 		if(S[si].biggest == -1) S[si].biggest = seat; else updateBiggest(si);
 		rm8GameSubMoney(seat, cost, true);	// Role_SubMoney_NoEmote(cost, 1)
 		did = true;
@@ -425,7 +426,7 @@ Rm8Ui *g_board = nullptr, *g_single = nullptr, *g_trade = nullptr;
 int g_uiSeat = -1;		// the role whose turn it is: the board shows and changes its money / shares
 int g_sel = -1;			// slot selected in the single stock dialog (+8 of the dialog object)
 bool g_buy = true;		// trade dialog: buy (true) or sell
-long g_qty = 0;			// trade dialog: the entered number of shares (+8)
+int32_t g_qty = 0;			// [N] trade dialog: the entered number of shares (+8)
 struct CardPick { bool on = false; float pct = 0; int days = 0; } g_pick;	// 0x5E..0x60: the row click forces the event on the stock
 bool g_chartBuilt = false;
 std::vector<int> g_cVL, g_cHL, g_cDash, g_cSeg, g_cYL, g_cML;	// chart widget ids (dynamic widgets of singleStock.ui)
@@ -434,7 +435,7 @@ int g_hiliteId = 0;		// selection picture behind the chosen stock button
 const unsigned C_YELLOW = 0xFFFFFF00, C_PRICE = 0xFF80FF00, C_RED = 0xFFFF0000, C_GREEN = 0xFF00FF00, C_WHITE = 0xFFFFFFFF;	// [V] Color_SwapRB(0xff00ffff / 0xff00ff80 / 0xff0000ff / 0xff00ff00): up = red, down = green
 
 std::string fmt(const char *f, double v){ char b[64]; snprintf(b, sizeof b, f, v); return b; }
-std::string fmtI(const char *f, long v){ char b[64]; snprintf(b, sizeof b, f, v); return b; }
+std::string fmtI(const char *f, int32_t v){ char b[64]; snprintf(b, sizeof b, f, v); return b; }	// [N] int32_t
 std::string nm(const char *f, int a, int b = -1){ char s[48]; if(b >= 0) snprintf(s, sizeof s, f, a, b); else snprintf(s, sizeof s, f, a); return s; }
 
 // [V] Stock_SetColorByChange @0x4dc240: up red, down green, unchanged white
@@ -443,7 +444,7 @@ unsigned changeColor(float p){ if(p > 0) return C_RED; if(p < 0) return C_GREEN;
 // [V] Stock_GetStockAvgPrice @0x4dc0d0
 double avgCost(int seat, int si){ Hold *h = findHold(seat, si); return h && h->qty ? (double)h->cost / (double)h->qty : 0.0; }
 // [V] Stock_GetMaxTradeQty @0x4dd450: min(ftol((float)deposit / price), shares left)
-long maxBuy(int slot){ Stock &s = S[g_main[slot]]; return std::min<long>(ftolD((double)(float)rm8GameDeposit(g_uiSeat) / (double)s.cur), s.remain); }
+int32_t maxBuy(int slot){ Stock &s = S[g_main[slot]]; return std::min<int32_t>(ftolD((double)(float)rm8GameDeposit(g_uiSeat) / (double)s.cur), s.remain); }	// [N] int32_t
 
 // ---- board
 void boardRefresh()
@@ -452,7 +453,7 @@ void boardRefresh()
 	if(!u) return;
 	int n = (int)g_main.size();
 	rm8UiSetTextByName(u, "Label", fmt("%.2f%%", (double)g_mktRate * 100.0));	// market change rate +0x3C
-	rm8UiSetTextByName(u, "Fund", fmtI("%ld", rm8GameDeposit(g_uiSeat)));
+	rm8UiSetTextByName(u, "Fund", fmtI("%d", rm8GameDeposit(g_uiSeat)));
 	{ float v = 0; if(g_uiSeat >= 0 && g_uiSeat < (int)g_hold.size()) for(Hold &h : g_hold[g_uiSeat]) v = (float)((double)h.qty * S[h.stock].cur + v); rm8UiSetTextByName(u, "StockValue", fmt("%.2f", v)); }	// Stock_CalcTotalValue @0x4dc000
 	std::vector<int> alive;
 	for(int k = 0; k < 4; k++){
@@ -474,14 +475,14 @@ void boardRefresh()
 		put(nm("name%d", i), s.name, nc);
 		put(nm("price%d", i), fmt("%.2f", s.cur), changeColor(s.daily));
 		put(nm("rate%d", i), fmt("%.2f%%", s.daily), changeColor(s.daily));
-		put(nm("sum%d", i), fmtI("%ld", s.remain), C_YELLOW);
+		put(nm("sum%d", i), fmtI("%d", s.remain), C_YELLOW);
 		put(nm("value%d", i), fmt("%.2f", avgCost(g_uiSeat, si)), C_YELLOW);
 		for(int k = 0; k < 4; k++){
 			std::string h = nm("%d_hold%d", k, i);
 			bool a = seatAlive(k);
 			if(!a){ rm8UiSetTextByName(u, h.c_str(), ""); continue; }
 			int pos = (int)(std::find(alive.begin(), alive.end(), k) - alive.begin()) + 1;	// [V] alternating colours: odd count 0x80, even 0xff (red channel)
-			put(h, fmtI("%ld", holdCount(k, si)), 0xFF00FF00u | ((pos & 1 ? 0x80u : 0xFFu) << 16));
+			put(h, fmtI("%d", holdCount(k, si)), 0xFF00FF00u | ((pos & 1 ? 0x80u : 0xFFu) << 16));
 		}
 	}
 }
@@ -565,7 +566,7 @@ void singleRefresh()
 	}
 	rm8UiSetPic(u, g_hiliteId, 802);	// [V] Stock_ShowDetail: the chosen button gets image 0x322 and white text
 	rm8UiSetRect(u, g_hiliteId, 12, 30 + 32 * (g_sel + 1), 128, 32);
-	rm8UiSetTextByName(u, "Fund", fmtI("%ld", rm8GameDeposit(g_uiSeat)));
+	rm8UiSetTextByName(u, "Fund", fmtI("%d", rm8GameDeposit(g_uiSeat)));
 	// [V] Stock_ShowDetail: limit up (change >= 10) cannot be bought (str 6315), limit down (<= -10) cannot be sold (str 6316)
 	bool canBuy = s.cls > 0, canSell = s.cls > 0;
 	std::string lim;
@@ -577,21 +578,21 @@ void singleRefresh()
 	rm8UiSetTextByName(u, "curStockName", s.name);
 	rm8UiSetTextByName(u, "price", fmt("%.2f", s.cur));
 	rm8UiSetTextByName(u, "rate", fmt("%.2f%%", s.daily));
-	rm8UiSetTextByName(u, "sellSum", fmtI("%ld", 10000L - s.remain));
+	rm8UiSetTextByName(u, "sellSum", fmtI("%d", 10000 - s.remain));	// [N] int32_t
 	// [V] Stock_ShowHolders @0x4c5f10: the chairman (largest holder) and up to 3 other holders
 	for(const char *t : {"chairman_name", "chairman_hold", "chairman_holdRate"}) rm8UiSetTextByName(u, t, "");
 	for(int k = 1; k <= 3; k++){ rm8UiSetTextByName(u, nm("holder_name%d", k).c_str(), ""); rm8UiSetTextByName(u, nm("hold%d", k).c_str(), ""); rm8UiSetTextByName(u, nm("holdRate%d", k).c_str(), ""); }
 	int chair = s.biggest;
 	if(chair >= 0 && chair < rm8TurnRoleCount()){
 		rm8UiSetTextByName(u, "chairman_name", rm8TurnName(chair));
-		rm8UiSetTextByName(u, "chairman_hold", fmtI("%ld", holdCount(chair, si)));
+		rm8UiSetTextByName(u, "chairman_hold", fmtI("%d", holdCount(chair, si)));
 		rm8UiSetTextByName(u, "chairman_holdRate", fmt("%.2f%%", (double)holdCount(chair, si) / 10000.0 * 100.0));
 		int k = 0;
 		for(int r = 0; r < rm8TurnRoleCount() && k < 3; r++){
 			if(r == chair || !seatAlive(r) || holdCount(r, si) <= 0) continue;
 			k++;
 			rm8UiSetTextByName(u, nm("holder_name%d", k).c_str(), rm8TurnName(r));
-			rm8UiSetTextByName(u, nm("hold%d", k).c_str(), fmtI("%ld", holdCount(r, si)));
+			rm8UiSetTextByName(u, nm("hold%d", k).c_str(), fmtI("%d", holdCount(r, si)));
 			rm8UiSetTextByName(u, nm("holdRate%d", k).c_str(), fmt("%.2f%%", (double)holdCount(r, si) / 10000.0 * 100.0));
 		}
 	}
@@ -599,15 +600,15 @@ void singleRefresh()
 }
 
 // ---- trade dialog [V] Stock_TradeInputProcess @0x4dc440
-void tradeShow(){ rm8UiSetTextByName(g_trade, "Edit", fmtI("%ld", g_qty)); }
-long tradeCap(){ return g_buy ? maxBuy(g_sel) : holdCount(g_uiSeat, g_main[g_sel]); }	// Stock_GetMaxTradeQty / Stock_GetPlayerStockQty
+void tradeShow(){ rm8UiSetTextByName(g_trade, "Edit", fmtI("%d", g_qty)); }
+int32_t tradeCap(){ return g_buy ? maxBuy(g_sel) : holdCount(g_uiSeat, g_main[g_sel]); }	// [N] Stock_GetMaxTradeQty / Stock_GetPlayerStockQty
 void tradeClose(){ rm8UiShow(g_trade, false); }
 void tradeExec()	// [V] Stock_ExecuteTrade @0x4dcd90
 {
 	int si = g_main[g_sel]; Stock &s = S[si];
 	if(g_buy){
 		float cost = (float)((double)g_qty * s.cur);
-		long c = roundInt(cost);
+		int32_t c = roundInt(cost);	// [N] int32_t
 		if(c < 1) return;	// the original only refreshes
 		rm8GameSubMoney(g_uiSeat, c, true);	// Bank_WithdrawMoney(round(cost), 1): the deposit first
 		buyPartial(g_uiSeat, si, (int)g_qty);
@@ -621,7 +622,7 @@ void tradeExec()	// [V] Stock_ExecuteTrade @0x4dcd90
 void tradeKey(const std::string &name)
 {
 	if(g_sel < 0) return;
-	long cap = tradeCap();
+	int32_t cap = tradeCap();	// [N] int32_t
 	if(name.size() == 1 && isdigit((unsigned char)name[0])){ g_qty = std::min(cap, g_qty * 10 + (name[0] - '0')); tradeShow(); }	// Stock_TradeInputDigit @0x4dc830
 	else if(name == "00"){ g_qty = std::min(cap, g_qty * 100); tradeShow(); }	// Stock_TradeInput_00K @0x4dc9c0
 	else if(name == "Max"){ g_qty = cap; tradeShow(); }	// Stock_TradeInput_Max @0x4dcba0
@@ -772,12 +773,12 @@ bool rm8StockEvent(int seat, int ev, int)
 	if(!rm8TurnHuman(seat)){
 		// [V] Card_SelectBest(1) @0x4fcf40 (0x5E / 0x5F): the own holding of the highest value; Card_SelectBest(0) (0x60): the highest holding
 		// of another living role that this role does not hold; Auction_PlaceBid(stock, pct, days) = Obj_SetFields35C_360
-		int best = -1; long bv = 0;
-		for(int k = 0; k < (int)g_hold[seat].size(); k++) if(ev != 96){ long v = holdingsValue(seat, k); if(bv < v){ bv = v; best = g_hold[seat][k].stock; } }
+		int best = -1; int32_t bv = 0;	// [N] int32_t
+		for(int k = 0; k < (int)g_hold[seat].size(); k++) if(ev != 96){ int32_t v = holdingsValue(seat, k); if(bv < v){ bv = v; best = g_hold[seat][k].stock; } }
 		if(ev == 96) for(int r = 0; r < rm8TurnRoleCount(); r++){
 			if(r == seat || !seatAlive(r)) continue;
 			for(int k = 0; k < (int)g_hold[r].size(); k++){
-				long v = holdingsValue(r, k);
+				int32_t v = holdingsValue(r, k);	// [N] int32_t
 				if(bv < v && !findHold(seat, g_hold[r][k].stock)){ bv = v; best = g_hold[r][k].stock; }
 			}
 		}

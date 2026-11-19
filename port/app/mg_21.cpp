@@ -30,6 +30,12 @@
 //   RM8_MG21_AUTOSTART=1 the rules panel is confirmed at once (same code path as the OK button, 10004540)
 //   RM8_MG21_LOG=1       log state changes, stabs and results to stderr
 //   RM8_SCENES=dir       directory with roles.txt / npcs.txt (the role / god models, see "local models" below)
+//   RM8_MG21_NETBOT=s    [N] netplay: the local player chooses after s seconds (a random visible hole, sometimes a barrel turn first) - through the referee as a click would
+//   RM8_MG21_NETMUTE=1   [N] netplay: the local choices are never sent (a frozen player: the host's per-turn time-out RM8_NET_MINI_TURN_TIMEOUT decides)
+//
+// [N] N4 netplay (docs/netplay.md section 9.3): every device of a netplay game runs this game (mg::net21().on). The referee of the event task (event_mini.cpp,
+//     lockstep) draws the pirate and every stab's outcome and resolves the computer / time-out choices; this file shows its actions (mg::net21Acts) in order,
+//     the local player's clicks / keys / time-out only send a choice (RM8C_MINI_ACT) and are shown when the action comes back. pl[i].ai = not played on this device.
 //
 // [A] FPU: the DLL runs with the x87 precision of Direct3D (24 bit mantissa): all float arithmetic here is single precision, which is what makes e.g. the exact
 //     compare "target == S * 400" of OnArrive @10003e99 hold.
@@ -416,6 +422,19 @@ struct G21 : MgGame {
 	bool forcedPirate = false; int forcePirate = 0;
 	int forceTrap = -1;
 	int hitAt = 0, stabs = 0; bool neverHit = false;
+	// [N] N4 netplay (minigame.h Rm8Mini21Net, docs/netplay.md section 9.3): every device runs this game; the pirate, every stab's outcome and the turns that
+	// are not played on this device come from the referee of the event task (event_mini.cpp) through mg::net21Acts(), in order. pl[i].ai = "not played here".
+	bool net = false;
+	size_t netPos = 0;		// the next referee action to show
+	int netTurn = 0;		// the stabs shown so far (= the referee's turn number of the current turn)
+	int netOutcome = -1;		// the referee's outcome of the stab being shown
+	bool netWait = false;		// the local player's choice went out (it comes back as a referee action)
+	int netRotOut = 0;		// barrel turns of the local player sent and not shown yet
+	bool netReady = false;		// the 0.7 s pause of a turn played elsewhere is over
+	bool netAutoPending = false;	// a computer choice turns the barrel first, then stabs (autoStep)
+	int netDueSent = -1;
+	float netIntroT = 0;
+	float netBot = -1, netBotT = 0; bool netBotTurned = false;	// test hook RM8_MG21_NETBOT=<s>: the local player chooses after <s> seconds (sometimes turns the barrel first)
 
 	// ---------------------------------------------------------------------------------------------------------------
 	int rnd(){ return mg::rand15(); }
@@ -497,6 +516,7 @@ struct G21 : MgGame {
 	}
 	bool firstStab()	// IsFirstStab @10001310: exactly one pool entry used
 	{
+		if(net) return stabs == 1;	// [N] the referee's pool (one draw per valid stab)
 		int c = 0; for(int k = 0; k < NHOLES; k++) if(bar.poolUsed[k]) c++;
 		return c == 1;
 	}
@@ -506,6 +526,13 @@ struct G21 : MgGame {
 		bar.clicked[hole] = true;
 		mAction(bar.sword[hole], 0, 1);		// [V] 10001978: +0x58 (sword, 0, 1)
 		snd(0x153);				// [V] 1000198e
+		if(net){	// [N] N4: the referee drew this stab's pool hole (the same on every device)
+			int r = netOutcome; netOutcome = -1; stabs++;
+			LOG21("net: stab %d outcome %d", stabs, r);
+			if(r == 1) return 1;
+			bar.remaining--;
+			return 0;
+		}
 		if(force82c){
 			if(force1c == 1) return 1;	// [V] 100019b7: hidden sequence: the stab hits
 			if(force1c == 2){ bar.remaining--; return 0; }	// [V] 100019d9: ... or is safe
@@ -538,7 +565,8 @@ struct G21 : MgGame {
 	}
 	void autoStep()	// @10001af0
 	{
-		if(!pl[cur].ai && !tmo) return;
+		if(net){ if(!netAutoPending) return; }	// [N] only a computer choice of the referee goes on by itself (a remote player's turn of the barrel does not stab)
+		else if(!pl[cur].ai && !tmo) return;
 		int t = pl[cur].target;
 		if(isHidden(t)){ setDirection(pl[cur].dir != 0); bar.rotating = true; return; }
 		doStab(t);
@@ -587,6 +615,7 @@ struct G21 : MgGame {
 	void markPopperWins(){ pl[cur].win = true; pl[defender].lose = true; }	// @10001f50
 	void doStab(int hole)	// LG21_Game_DoStab @10001fa0
 	{
+		netAutoPending = false;
 		int r = stab(hole);
 		LOG21("stab hole %d by player %d -> %d (remaining %d)", hole, cur, r, bar.remaining);
 		if(r == 1){ finished = true; markPopperWins(); setState(6); return; }
@@ -679,6 +708,17 @@ struct G21 : MgGame {
 		switch(s){
 		case 3: setState(9); break;
 		case 4:	// @1000259a: the human did not choose in 7 s
+			if(net){	// [N] N4: the choice goes to the referee (the hole under the pointer, else the computer's choice), it comes back as an action
+				if(netWait || pl[cur].ai) break;
+				tmo = true;
+				mg::showCursor(false);
+				float x, y; mousePos(x, y);
+				int b = hitTest(x, y);
+				if(b != -1 && !bar.clicked[boxToHole(b)] && !bar.rotating && netRotOut == 0) netSend(RM8M21_STAB, boxToHole(b));
+				else netSend(RM8M21_AUTO, 0);
+				netWait = true;
+				break;
+			}
 			if(onMouseClick()) break;		// the mouse may be on a hole: take it
 			tmo = true;
 			mg::showCursor(false);
@@ -697,6 +737,11 @@ struct G21 : MgGame {
 				if(n > 0){ pl[0].active = true; cur = 0; }
 				mAction(pl[0].model, 4, 0);
 			}
+			if(net){	// [N] a turn played elsewhere waits for the referee (the pause of a computer turn)
+				if(pl[cur].ai){ mg::showCursor(false); setState(11); }
+				else mg::showCursor(true);
+				break;
+			}
 			if(pl[cur].ai){
 				mg::showCursor(false);
 				computerPlay();
@@ -705,7 +750,13 @@ struct G21 : MgGame {
 			break;
 		}
 		case 10: endFlag = true; mg::showCursor(true); break;	// @10002925
-		case 11: mg::showCursor(false); computerPlay(); break;	// @10002508: the computer's turn after 0.7 s
+		case 11:	// @10002508: the computer's turn after 0.7 s
+			if(net){	// [N] the referee's action of this turn is shown from now on (netPump); the host may decide a computer seat's stab now
+				netReady = true;
+				if(netDueSent != netTurn && mg::net21().botDue){ netDueSent = netTurn; mg::net21().botDue(netTurn); }
+				break;
+			}
+			mg::showCursor(false); computerPlay(); break;
 		default: break;
 		}
 	}
@@ -752,6 +803,7 @@ struct G21 : MgGame {
 	void nextTurn()	// LG21_Game_NextTurn @100043e0
 	{
 		tmo = false;
+		netWait = false; netRotOut = 0; netReady = false; netAutoPending = false; netBotT = 0; netBotTurned = false;	// [N]
 		pl[cur].active = false;
 		mAction(pl[cur].model, 3, 0);
 		mAction(pl[defender].model, 8, 1);
@@ -819,6 +871,17 @@ struct G21 : MgGame {
 			return;
 		}
 		if(c.next == 0 && !c.chained && c.handle == god){	// [V] 10003cc4: the god settles on the pirate and grabs him
+			if(net && defender != mg::net21().defender){	// [N] N4: the referee's pirate: the god flies on to it first (the flights before are this device's own show)
+				int i = std::max(0, std::min(n - 1, mg::net21().defender));
+				mg::project(pl[i].pos, c.tx, c.ty);
+				c.sx = c.gx; c.sy = c.gy;
+				c.speed = 70.0f;
+				queue.push_back(c);
+				defender = i;
+				if(godFirst){ mAction(god, 3, 0); godFirst = false; }
+				LOG21("net: the god flies on to the referee's pirate %d", i);
+				return;
+			}
 			c.speed = 30.0f;
 			float oy = c.ty;
 			c.sx = c.tx; c.sy = oy;
@@ -914,6 +977,8 @@ struct G21 : MgGame {
 		if(const char *e = getenv("RM8_MG21_PIRATE")){ forcedPirate = true; forcePirate = atoi(e); }
 		if(const char *e = getenv("RM8_MG21_HIT")) hitAt = atoi(e);
 		if(getenv("RM8_MG21_NEVER")) neverHit = true;
+		net = mg::net21().on;	// [N] N4: the referee decides (its own test hooks); these local ones would only change this device's show
+		if(net){ forcedPirate = false; hitAt = 0; neverHit = false; forceTrap = -1; if(const char *e = getenv("RM8_MG21_NETBOT")) netBot = (float)atof(e); }
 		W = (float)mg::W; H = (float)mg::H;
 		S = W * SCALE_K;					// [V] 100050ec: scale = width * 0.00125
 		n = std::max(1, std::min(4, (int)pls.size()));		// [A] the seat table of the DLL (+0x830) holds four seats
@@ -1041,6 +1106,20 @@ struct G21 : MgGame {
 	bool update(float dt) override
 	{
 		if(autostart && state == 2){ introConfirm(); autostart = false; }
+		if(net){	// [N] N4
+			if(state == 2 && ((netIntroT += dt) > 5.0f || netBehind() > 0)) introConfirm();	// [A] the rules panel closes by itself after 5 s (every device runs the game; the turns do not wait for it)
+			if(netBehind() >= 2) dt = std::min(0.1f, dt * 2.0f);	// [A] a device that lags behind the referee by two stabs or more catches up at double speed
+			if(netBot >= 0 && state == 4 && !pl[cur].ai && !tmo && !netWait && !bar.rotating && netRotOut == 0 && (netBotT += dt) >= netBot){	// test hook RM8_MG21_NETBOT
+				netBotT = 0;
+				if(!netBotTurned && rnd() % 2){ netBotTurned = true; netRotate(rnd() % 2 != 0); }
+				else{
+					int c[6], k = 0;
+					for(int b = 0; b < 6; b++) if(!bar.clicked[boxToHole(b)]) c[k++] = boxToHole(b);
+					if(k){ netSend(RM8M21_STAB, c[rnd() % k]); netWait = true; mg::showCursor(false); }
+					else netRotate(true);
+				}
+			}
+		}
 		updateQueue(dt);
 		t7fc += dt;
 		mg::spUpdate(hudBg[4], dt);		// [V] Hud_UpdateAnim @10006530
@@ -1083,7 +1162,65 @@ struct G21 : MgGame {
 		// Barrel_Update @10001d20
 		if(bar.rotating) rotateAnim(dt);
 		updateSwords(dt);
+		if(net) netPump();	// [N]
 		return !endFlag;
+	}
+	// ---- [N] N4 netplay ----------------------------------------------------------------------------------------------
+	int netBehind()	// referee stabs not shown yet
+	{
+		int k = 0;
+		for(const Rm8Mini21Act &a : mg::net21Acts()) if((a.kind == RM8M21_STAB || a.kind == RM8M21_AUTO) && a.turn >= netTurn) k++;
+		return k;
+	}
+	void netSend(int kind, int arg)
+	{
+		static const bool mute = getenv("RM8_MG21_NETMUTE") != nullptr;	// test hook: the choices of this device never go out (a frozen player: the host's turn time-out decides)
+		LOG21("net: send kind %d turn %d arg %d%s", kind, netTurn, arg, mute ? " (muted)" : "");
+		if(mg::net21().send && !mute) mg::net21().send(kind, netTurn, arg);
+	}
+	void netRotate(bool left)	// the local player turns the barrel: one step at a time, shown when the referee's action comes back (every device turns it alike)
+	{
+		if(netWait || tmo || bar.rotating || netRotOut > 0) return;
+		netRotOut++;
+		netSend(RM8M21_ROT, left ? 1 : 0);
+	}
+	void snapAngle(float target)	// the barrel to the referee's angle (only if a turn of the local player was overtaken by the host's decision)
+	{
+		float d = target - bar.angle;
+		const V3 axis(0, 1, 0);
+		mPos(bar.model, V3(0, 0, 0)); mRot(bar.model, axis, -d); mPos(bar.model, V3(BARREL_X, BARREL_Y, BARREL_Z));	// model rotation = -(angle change) (rotateAnim / stepAngle)
+		for(int k = 0; k < NHOLES; k++){ mPos(bar.sword[k], V3(0, 0, 0)); mRot(bar.sword[k], axis, -d); mPos(bar.sword[k], V3(BARREL_X, BARREL_Y, BARREL_Z)); }
+		bar.angle = target;
+		LOG21("net: barrel snapped to %.0f", target);
+	}
+	void netPump()	// show the referee's next action of the current turn
+	{
+		const std::vector<Rm8Mini21Act> &acts = mg::net21Acts();
+		if(state != 4 && state != 11) return;
+		if(bar.rotating || netAutoPending) return;
+		if(state == 11 && !netReady) return;
+		while(netPos < acts.size()){
+			const Rm8Mini21Act a = acts[netPos];
+			if(a.turn < netTurn){ netPos++; continue; }
+			if(a.turn > netTurn) return;
+			netPos++;
+			if(a.kind == RM8M21_ROT){
+				if(netRotOut > 0) netRotOut--;
+				setDirection(a.dir != 0); bar.rotating = true;
+				LOG21("net: turn %d: barrel %s", a.turn, a.dir ? "left" : "right");
+				return;
+			}
+			netTurn++;
+			netWait = false; tmo = true;	// the turn is decided: no more input
+			mg::showCursor(false);
+			if(ftol(bar.angle) != a.angle) snapAngle((float)a.angle);
+			netOutcome = a.outcome;
+			pl[cur].target = a.hole; pl[cur].dir = a.dir;
+			LOG21("net: turn %d (player %d): %s hole %d -> %d", a.turn, cur, a.kind == RM8M21_AUTO ? "computer" : "stab", a.hole, a.outcome);
+			if(a.kind == RM8M21_AUTO && isHidden(a.hole)){ netAutoPending = true; setDirection(a.dir != 0); bar.rotating = true; }	// as computerPlay: the barrel turns until the hole shows, then autoStep stabs
+			else doStab(a.hole);
+			return;
+		}
 	}
 	void updateSwords(float dt)	// @10001650
 	{
@@ -1115,11 +1252,11 @@ struct G21 : MgGame {
 			if(state == 2 && canConfirm){ introConfirm(); canConfirm = false; }
 			break;
 		case 'a': case RM8MK_LEFT:	// @10004dca
-			if(state == 4 && !pl[cur].ai){ setDirection(true); bar.rotating = true; }
+			if(state == 4 && !pl[cur].ai){ if(net) netRotate(true); else { setDirection(true); bar.rotating = true; } }	// [N] netplay: through the referee
 			hiddenKey(1);
 			break;
 		case 'd': case RM8MK_RIGHT:	// @10004e4b
-			if(state == 4 && !pl[cur].ai){ setDirection(false); bar.rotating = true; }
+			if(state == 4 && !pl[cur].ai){ if(net) netRotate(false); else { setDirection(false); bar.rotating = true; } }
 			hiddenKey(2);
 			break;
 		case RM8MK_ENTER:	// @10004efe
@@ -1141,6 +1278,19 @@ struct G21 : MgGame {
 			// [A] a touch has no hover: the arrows are tested at the tap position first (the DLL relies on the hover flags of the last Update)
 			if(state == 4 && !pl[cur].ai && !tmo){	// [V] 100029af..: only in state 4, on a human turn that has not timed out
 				hoverTest();
+				if(net){	// [N] N4: the choice goes to the referee; the stab / the barrel turn is shown when its action comes back (on every device alike)
+					if(netWait || bar.rotating || netRotOut > 0) return;
+					float x, y; mousePos(x, y);
+					int b = hitTest(x, y);
+					if(b != -1){
+						int h = boxToHole(b);
+						if(!bar.clicked[h]){ netSend(RM8M21_STAB, h); netWait = true; mg::showCursor(false); }
+						return;
+					}
+					if(hoverL){ netRotate(true); snd(0x168); }
+					else if(hoverR){ netRotate(false); snd(0x168); }
+					return;
+				}
 				onMouseClick();
 				if(hoverL){ setDirection(true); bar.rotating = true; snd(0x168); }	// [V] 100029ed: left arrow: SetDirection(1), SetRotating(1), sound 0x168
 				else if(hoverR){ setDirection(false); bar.rotating = true; snd(0x168); }	// [V] 10002a28

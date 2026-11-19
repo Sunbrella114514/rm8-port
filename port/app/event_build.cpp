@@ -34,7 +34,7 @@ struct BuildTask : Task {
 	float timer = 0;		// [V] +0xC
 	int state = 0;			// [V] +0x14
 	int die = 0;			// [V] +0x18
-	long fee = 0;			// [V] +0x1C
+	int32_t fee = 0;			// [N] [V] +0x1C
 	int voice = 0;			// [V] +0x10
 	bool done = false, shown = false;
 	Npc *npc = nullptr;
@@ -49,11 +49,11 @@ struct BuildTask : Task {
 		timer = 2.0f * waitScale();
 	}
 	int sid(int n) const { return (hotel ? 5100 : 5000) + n; }	// [V] vf25: param + 5000 / + 0x13EC (5100)
-	long base() const	// [V] vf17: the chain store = the sum of the owner's chain store levels * 1000 * PI; the hotel = its level * 2000 * PI
+	int32_t base() const	// [N] [V] vf17: the chain store = the sum of the owner's chain store levels * 1000 * PI; the hotel = its level * 2000 * PI
 	{
-		long pi = std::max(1L, rm8GamePI());
-		if(hotel) return (long)level * 2000 * pi;
-		long sum = 0;
+		int32_t pi = std::max(1, rm8GamePI());	// [N] int32_t
+		if(hotel) return (int32_t)level * 2000 * pi;
+		int32_t sum = 0;
 		for(int t = 0; t < rm8GameTerraCount(); t++) if(rm8GameTerraOwner(t) == owner && rm8GameTerraType(t) == 2 && rm8GameTerraBuild(t) == 3) sum += rm8GameTerraLevel(t);
 		return sum * 1000 * pi;
 	}
@@ -75,7 +75,7 @@ struct BuildTask : Task {
 		state = 1;
 		rm8UiShow(ui, true); shown = true;
 		if(rm8TurnHuman(s)) showDieGo(this, "Button");	// [V] the go panel (one die) replaces the dice button
-		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s of seat %d (plot %d level %d) visited by seat %d: base %ld", h ? "hotel" : "chain store", owner, t, level, s, base());
+		if(getenv("RM8_DEBUG_EVENTS")) rm8Log("events: %s of seat %d (plot %d level %d) visited by seat %d: base %d", h ? "hotel" : "chain store", owner, t, level, s, base());
 	}
 	~BuildTask() override { hideDieGo(this); npcDestroy(npc); if(voice) rm8SndStop(voice); rm8UiShow(ui, false); rm8UiOnClickName(ui, nullptr); }
 	bool ok() const { return ui != nullptr; }
@@ -122,7 +122,7 @@ struct BuildTask : Task {
 		case 2: state = 10; break;
 		case 10: if(!rm8TurnHuman(seat)) roll(); break;				// [V] a computer: vf12(rand() % 6 + 1, 1)
 		case 3: {									// [V] the base price and the die: str 5003 / 5103 (die, base), action 1, no voice of its own
-			long b = base(); fee = b;
+			int32_t b = base(); fee = b;	// [N] int32_t
 			describe(plainFmt(sid(3), die, (int)b), 1, false);
 			state = 4; break; }
 		case 4:										// [V] fee = base * die: str 5004 / 5104, action 2 + voice
