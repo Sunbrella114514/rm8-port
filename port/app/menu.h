@@ -88,6 +88,7 @@ void rm8MenuNetSetMode(int mode);
 int rm8MenuNetMode();
 bool rm8MenuNetGet(Rm8MenuNetView &v);				// host: the current screen, setup and seat kinds
 void rm8MenuNetMirror(const Rm8MenuNetView &v, int mySeat);	// client: the host's screen with the host's values (opens the menus on that page)
+bool rm8MenuNetAddGuestSeat();					// host: adds a network seat for a guest that found none (false = the room is full)
 bool rm8MenuNetSetSeatRole(int serial, int charId, int outfit);	// host: a client's character / outfit request for its seat (false = taken / invalid)
 bool rm8MenuNetLoadPage();					// the load menu was opened for a netplay resume (RM8PAGE_NET_LOAD): its pick is hosted, not loaded locally
 void rm8MenuNetTestRoom(const Rm8Setup &st, const std::vector<int> &kinds);	// test hook (RM8_NET_HOST + RM8_NET_SETUP): the host's role menu with this setup / seat kinds

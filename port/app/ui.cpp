@@ -639,7 +639,7 @@ bool rm8UiPointerDown(float x, float y, bool touch)
 	g_pressed = w; g_pressedUi = u; g_hover = w; g_hoverUi = u;
 	// [V] UiLib_Title mouse-down handler @0x5c31f0 (button, left button, enabled): DownSound (+0x1f4) through the hook @0x4EC680
 	// = CAudioMgr_PlaySample(id,0,0,0,1000,50,1.0,1)
-	if(w && w->type == "button" && w->enabled && w->downSound >= 0) rm8SndPlay(w->downSound);
+	if(w && w->type == "button" && w->enabled && w->downSound >= 0) rm8SndPlayLocal(w->downSound);	// [N] the pointer of this device: never part of the deterministic sample clock (netplay)
 	return w != nullptr;
 }
 
@@ -667,7 +667,7 @@ void rm8UiPointerMove(float x, float y)
 	Widget *w = hit(x, y, &hu);
 	g_hoverUi = w ? hu : nullptr;
 	// [V] UiLib_Title mouse-enter handler @0x5c3460 (enabled, visible): InSound (+0x1f0)
-	if(w && w != g_hover && w->type == "button" && w->enabled && w->inSound >= 0) rm8SndPlay(w->inSound);
+	if(w && w != g_hover && w->type == "button" && w->enabled && w->inSound >= 0) rm8SndPlayLocal(w->inSound);	// [N] (as above)
 	g_hover = w;
 }
 

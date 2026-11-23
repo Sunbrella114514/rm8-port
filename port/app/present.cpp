@@ -668,6 +668,7 @@ static void fxRenderOverlay(Camera *cam)
 
 bool rm8FxFinished(int h){ Fx *f = fxFind(h); return !f || f->done; }
 bool rm8FxActive(int h){ return fxFind(h) != nullptr; }
+bool rm8FxHasAnim(int h){ Fx *f = fxFind(h); return f && f->clump && f->hasAnim; }
 
 void rm8FxStop(int h)
 {

@@ -165,7 +165,7 @@ struct Ref21 {
 
 struct MiniTask : Task {
 	bool started = false, finished = false;
-	float doneT = 0;
+	float doneT = 0, playT = 0;	// playT: [N] test hook RM8_NET_MINI_AUTO (local seconds of this device's minigame)
 	// [N] N4 netplay
 	int game = 0;
 	bool net = false, local = false, sent = false, have = false;
@@ -254,6 +254,18 @@ struct MiniTask : Task {
 			started = rm8MiniStart(game, pl, seed);
 			if(!started){ rm8UiPopHidden(); rm8Log("events: minigame %d could not start (scenes/minigame data?): the computer logic decides", game); sent = true; rm8NetInput(RM8C_MINI_RESULT, game, 1); }
 			return false;
+		}
+		{	// [N] test hook RM8_NET_MINI_AUTO=<seconds> (the long netplay tests, docs/netplay.md 8): this device's minigame is dropped after that many local seconds and a
+			// player's result (count 1, score 40..199 from the frame number) is sent instead, so the result-command path runs without anybody playing
+			static const float autoSec = getenv("RM8_NET_MINI_AUTO") ? (float)atof(getenv("RM8_NET_MINI_AUTO")) : 0.0f;
+			if(autoSec > 0 && !rm8MiniDone() && (playT += dt) >= autoSec){
+				rm8MiniAbort(); rm8UiPopHidden(); rm8MusicResumeBoard();
+				sent = true;
+				char enc[64]; snprintf(enc, sizeof enc, "1|%d,%d,0,%d,0", seat, 40 + (int)(waited * 7u % 160u), (int)(waited % 3u));
+				rm8Log("events: [N] test: minigame %d of seat %d dropped after %.0f s, result %s sent", game, seat, autoSec, enc);
+				rm8NetInput(RM8C_MINI_RESULT, game, 0, enc);
+				return false;
+			}
 		}
 		if(!rm8MiniDone()) return false;
 		if((doneT += dt) < 0.5f) return false;	// [A] as in single player

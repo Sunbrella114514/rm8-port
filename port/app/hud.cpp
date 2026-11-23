@@ -173,6 +173,7 @@ void rm8HudCloseModal(){ if(getenv("RM8_DEBUG_HUD")) rm8Log("hud: close modal");
 
 static bool g_shotTrig = false;
 bool rm8HudShotTriggered(){ return g_shotTrig; }
+void rm8HudShotTrigger(){ g_shotTrig = true; }
 void rm8HudInfo(const std::string &text){ if(const char *k = getenv("RM8_SHOT_ON_INFO")) if(text.find(k) != std::string::npos) g_shotTrig = true; { static int n = 0; n++; if(const char *k = getenv("RM8_SHOT_ON_INFO_N")) if(n == atoi(k)) g_shotTrig = true; }	/* the n-th info box (Windows passes a Chinese RM8_SHOT_ON_INFO in the ANSI code page, not UTF-8) */ if(getenv("RM8_DEBUG_HUD")) rm8Log("hud: info [%s]%s", text.c_str(), g_info ? "" : " (no ginfo)"); if(g_info){ rm8InfoBoxYield(); rm8UiSetText(g_info, 1, text); rm8UiShow(g_info, true); } }
 
 void rm8HudInfoPic(const std::string &text, int uvlId)

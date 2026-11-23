@@ -916,6 +916,7 @@ int main(int argc, char *argv[])
 			bool shown = rm8InfoBoardTap(cam, fingers[0].sx * dw, fingers[0].sy * dh); if(getenv("RM8_INFO_AUTO")) rm8Log("long press at (%.0f, %.0f) -> %d", fingers[0].sx * dw, fingers[0].sy * dh, shown);
 		}
 		rm8NetPoll();	// [N] sockets, heartbeats, lobby, commands (also in the menus and while paused, so the connection stays alive)
+		{ static const int frameMs = getenv("RM8_TEST_FRAME_MS") ? atoi(getenv("RM8_TEST_FRAME_MS")) : 0; if(frameMs > 0) SDL_Delay((Uint32)(frameMs / 2 + SDL_GetTicks() % (Uint32)frameMs)); }	// [N] test hook: a slow / uneven device (frame pacing of a netplay peer: more lockstep steps per drawn frame)
 		if(netPagePending){ netPagePending = false; rm8MenuClose(); inMenu = false; inNet = true; rm8NetUiOpen(); }	// [N] back to the 联机 page (a client left the room / the resume's load menu was left)
 		if(paused){ SDL_Delay(50); continue; }
 		if(inNet){	// [N] the lobby / join screens (net_ui.cpp)
@@ -1047,6 +1048,7 @@ int main(int argc, char *argv[])
 			float fp[3] = {0, 0, 0};
 			int serial = rm8RolesFocus(fp);	// [V] the turn flow snaps the camera to its focus; panning offsets from it
 			if(serial != followIdx){ followIdx = serial; o.tx = o.tz = 0; }
+			{ float jx, jz; if(rm8InfoTakeViewJump(jx, jz)){ o.tx = jx - fp[0]; o.tz = jz - fp[2]; } }	// [N] netplay: a minimap click pans this device's view only (the turn focus is simulation state)
 			cardRangeView(sc);
 			if(!cardPickCamera(sc, cam)) rm8PlaceCamera(cam, sc, o.yaw, o.pitch, o.dist, fp[0] + o.tx, fp[2] + o.tz);
 			// [A] comparison hook: scenes/camfile.txt (scripts/game_camera.py values: LTM 16, view window 2, near, far) pins the

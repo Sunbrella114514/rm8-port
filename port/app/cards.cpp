@@ -735,8 +735,12 @@ static bool handleMessage(int me, int cmd, int a, int b)
 		auto own = [plots, me](){ for(int t : plots) if(rm8GameTerraOwner(t) != me) rm8GameSetTerra(t, me, -1, -1); };
 		if(!rm8BoardFxBlink(me, plots, 1, own)) own();
 		return true; }
-	case 0x2F: rm8GameStreetClose(a, b); return true;		// [V] Terra_LoadCloseIcon @0x42d3b0
-	case 0x30: rm8GameStreetFlow(a, b); return true;		// [V] Terra_SetHeight @0x42d4c0
+	case 0x2F: case 0x30: {	// [V] Terra_LoadCloseIcon @0x42d3b0 (seal: +0x108 = days) / Terra_SetHeight @0x42d4c0 (price: +0x104 / +0x10C / +0x110 = 9 days), both only for 0 < street < count;
+		// then the task Cls_5e0910 (boardfx.cpp): art 6003 / 6120 on every plot of the street, sample 5 / 0x1D, state 9, and the street's sign when it ends
+		int prev = rm8BoardFxStreetSignShown(a);
+		if(cmd == 0x2F) rm8GameStreetClose(a, b); else rm8GameStreetFlow(a, b);
+		rm8BoardFxStreetMark(me, a, cmd == 0x2F, prev);
+		return true; }
 	case 0x36: case 0x37: {	// [V] Terra.Bomb: the dispatcher @0x481df0 calls CPlayerTag__OnHolidayCardUse(node, 0x1777 / 0x1778, 0x12 / 0x13, radius 1 / 3, type 0 / 1, days 3 / 5) and queues 0x1e, 0x67(9)
 		bool nuke = cmd == 0x37;
 		if(a >= 0 && a < rm8GameNodeCount()) rm8NpcBlast(me, a, nuke ? 0x1778 : 0x1777, nuke ? 0x13 : 0x12, nuke ? 3 : 1, nuke ? 5 : 3, nuke ? 1 : 0);

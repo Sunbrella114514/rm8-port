@@ -61,6 +61,7 @@ void rm8PresentSkipSeat(int seat);		// [V] Role_StopMoveAndIdle @0x484790 (wait 
 int rm8FxPlay(int art, const float pos[3], float yawDeg = 0, int anim = 0, bool once = true, int sound = 0, float scale = 1.0f, float life = 0, bool autoRemove = false);
 bool rm8FxFinished(int handle);	// a once animation has ended / life elapsed / the handle is gone (stopped, removed or invalid)
 bool rm8FxActive(int handle);
+bool rm8FxHasAnim(int handle);	// the effect is an article with an animation (a finish callback can come); false for a particle art / no clip
 void rm8FxStop(int handle);		// removes the article / emitter and stops its sound
 void rm8FxMove(int handle, const float pos[3]);
 void rm8FxStopAll();

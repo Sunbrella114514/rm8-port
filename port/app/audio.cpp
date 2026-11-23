@@ -352,6 +352,7 @@ int rm8SndPlayLocal(int id, int loops, float volume)
 }
 
 void rm8AudioSetDeterministic(bool on){ if(g_det != on) rm8Log("audio: deterministic sample clock %s", on ? "on (netplay)" : "off"); g_det = on; g_detV.clear(); }
+void rm8AudioDetSync(){ if(g_det && !g_detV.empty()){ if(g_trace) rm8Log("audio: deterministic clock: %d sample(s) counted as ended at the day boundary", (int)g_detV.size()); g_detV.clear(); } }
 void rm8AudioDetTick(float dt)
 {
 	if(!g_det) return;
@@ -499,6 +500,7 @@ void rm8SndStopAll(){}
 bool rm8SndPlaying(int){ return false; }
 void rm8AudioSetDeterministic(bool){}
 void rm8AudioDetTick(float){}
+void rm8AudioDetSync(){}
 
 void rm8MusicPlay(int, bool){}
 void rm8MusicStop(){}

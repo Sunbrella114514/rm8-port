@@ -18,6 +18,7 @@ bool rm8SndPlaying(int handle);
 // rm8AudioDetTick(the fixed simulation step) - the game's waits on voices no longer depend on the device; the sound itself plays as before. Off = unchanged.
 void rm8AudioSetDeterministic(bool on);
 void rm8AudioDetTick(float dt);
+void rm8AudioDetSync();	// [N] netplay: every deterministic sample counts as ended (a day-end boundary, the resync point: a loaded snapshot starts without them too); the sounds go on playing
 // [N] N4: a sample of a minigame that only the local player runs (mg_gfx.cpp): with the deterministic clock on it plays from its own handle range and is not
 // counted by that clock (the shared simulation never sees it); otherwise exactly rm8SndPlay
 int rm8SndPlayLocal(int id, int loops = 1, float volume = 1.0f);

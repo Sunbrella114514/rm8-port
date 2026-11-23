@@ -18,6 +18,7 @@ bool rm8InfoOpenFromHud(int button, int seat);
 bool rm8InfoSettingOpen();
 bool rm8InfoVisible();			// one of the screens is open
 bool rm8InfoFullScreen();		// the player info (a whole-screen dialog: hud.cpp skips its number sprites, drawn after the UIs)
+bool rm8InfoTakeViewJump(float &x, float &z);	// [N] netplay: a minimap click asks the view camera (not the turn focus) to look at world (x, z); true once per click
 bool rm8InfoClose();			// right click / Esc / Android back: closes the open screen (the scene vf11 -> the task's vf11); false if none was open
 
 // every frame (hud.cpp, before the UI renders): scroll bar / slider drags, the minimap hover, test hooks

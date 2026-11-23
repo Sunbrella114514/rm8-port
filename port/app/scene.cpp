@@ -1041,6 +1041,7 @@ void rm8DestroyScene(Rm8Scene &s)
 void rm8RenderScene(Rm8Scene &s, bool deferGlass)
 {
 	for(Atomic *a : s.atomics) if(a->geometry->matList.materials[0]->color.alpha == 255) a->render();	// opaque first
+	rm8BoardFxRenderSigns();	// the seal / price signs of the streets: quads of the terrain mesh in the original (Terra_RebuildQuadMesh @0x4EF0F0, boardfx.cpp)
 	static const char *hideV = getenv("RM8_HIDE_VERTS");	// debugging: hide atomics with this vertex count
 	if(!hideV) rm8RenderArticles(s, deferGlass);
 	else for(Clump *c : s.clumps){ FORLIST(lnk, c->atomics){ Atomic *a = Atomic::fromClump(lnk); if(a->geometry->numVertices != atoi(hideV)) a->render(); } }

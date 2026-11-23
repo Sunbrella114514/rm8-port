@@ -652,7 +652,17 @@ std::vector<CrashTask> g_crashes;
 struct MonsterTask { int seat = 0, terra = 0, fx = 0; float timer = 0; bool reset = false; };
 std::vector<MonsterTask> g_monsters;
 
-void plotTasksClear(){ for(DemoTask &d : g_demos) fxDrop(d.fx); for(AngelTask &a : g_angels) for(int h : a.fx) rm8FxStop(h); for(CrashTask &c : g_crashes) fxDrop(c.fx); for(MonsterTask &m : g_monsters) fxDrop(m.fx); g_demos.clear(); g_blinks.clear(); g_angels.clear(); g_crashes.clear(); g_monsters.clear(); }
+// ---- the seal / price-up of a street: [V] Terra_LoadCloseIcon @0x42D3B0 (message 0x2F, Role_MsgHandler_LoadTerraCloseIcon @0x48D220) / Terra_SetHeight @0x42D4C0 (message 0x30,
+// Role_MsgHandler_SetTerraHeight @0x48D270) -> the singleton task Cls_5e0910 (Cls_5e0910_GetInstance @0x42DEB0) filled by Building_PlaceBuildingOnTerra @0x4F3840: every plot of the
+// street gets the effect article (0x1773 = 6003 eff\D05t the stamp / 0x17E8 = 6120 particle 21 the arrows) at Building_GetPosTowardCamera, yaw camera - 180, scale 0.5 on a residential
+// plot, action 0 once (only the first one with the finish callback GameState_CallCallback2 -> vf4); sample 5 / 0x1D once; the role is in state 9. Cls_5e0910__vf1 @0x4F3A00: when the first
+// effect has ended (vf4 Cls_5e6988__vf4_ClearElements emptied the list) or after 1.2 s: vf4 + vf16 Cls_5e0910__vf16_DestroyTexture @0x4F3A70 = Terra_RebuildQuadMesh @0x4EF0F0 on every
+// plot of the street with the sign texture (land_close / land_up / land_down; none for a price change on a sealed street: the seal sign stays), then the task is done.
+struct MarkTask { int seat = 0, street = 0, prevSign = 0; float timer = 0; bool lead = false; std::vector<int> fx; };
+std::vector<MarkTask> g_marks;
+void markEnd(MarkTask &m){ for(int h : m.fx) rm8FxStop(h); m.fx.clear(); }
+
+void plotTasksClear(){ for(MarkTask &m : g_marks) markEnd(m); g_marks.clear(); for(DemoTask &d : g_demos) fxDrop(d.fx); for(AngelTask &a : g_angels) for(int h : a.fx) rm8FxStop(h); for(CrashTask &c : g_crashes) fxDrop(c.fx); for(MonsterTask &m : g_monsters) fxDrop(m.fx); g_demos.clear(); g_blinks.clear(); g_angels.clear(); g_crashes.clear(); g_monsters.clear(); }
 
 }	// namespace
 
@@ -721,7 +731,9 @@ bool rm8BoardFxMonster(int seat, int terra)
 	float p[3];
 	if(!g_s || !rm8GameTerraPos(terra, p)) return false;
 	MonsterTask m; m.seat = seat; m.terra = terra;
-	m.fx = fxAtPlot(6004, p, 1.0f, 6);	// [V] art 0x1774, sample 6
+	m.fx = fxAtPlot(6004, p, 1.0f, 0);	// [V] art 0x1774
+	if(m.fx) snd(6);	// [V] CAudioMgr_PlaySample(6, ...) on its own: the end of the task (the article released) does not cut it (it used to be the effect's sound and stopped 0.1 s early)
+	if(g_trace) rm8Log("boardfx: monster on plot %d (seat %d, level %d) fx %d t=%.2f", terra, seat, rm8GameTerraLevel(terra), m.fx, g_time);
 	if(!m.fx) return false;
 	rm8TurnFocus(p);
 	rm8TurnSetState(seat, 9);
@@ -729,8 +741,46 @@ bool rm8BoardFxMonster(int seat, int terra)
 	return true;
 }
 
+bool rm8BoardFxStreetMark(int seat, int street, bool seal, int prevSign)
+{
+	if(!g_s || street <= 0) return false;	// [V] 0 < street < count: else no task (and no state 9)
+	MarkTask k; k.seat = seat; k.street = street; k.prevSign = prevSign;
+	int art = seal ? 6003 : 6120;		// [V] 0x1773 / 0x17E8
+	for(int t = 0; t < rm8GameTerraCount(); t++){
+		if(rm8GameTerraStreet(t) != street) continue;
+		float p[3]; if(!rm8GameTerraPos(t, p)) continue;
+		int h = fxAtPlot(art, p, rm8GameTerraType(t) == 1 ? 0.5f : 1.0f, 0);	// [V] scale (0.5, 0.5, 0.5) when +0x3C low word == 1 (residential)
+		if(h){ if(k.fx.empty()) k.lead = rm8FxHasAnim(h); k.fx.push_back(h); }
+	}
+	snd(seal ? 5 : 0x1D);			// [V] CAudioMgr_PlaySample(param_3 = 5 / 0x1D, ...), once for the street
+	rm8TurnSetState(seat, 9);		// [V] the handler: g_GameState + 0x34 = the task, role +0x1B8 = 9
+	if(g_trace) rm8Log("boardfx: street %d %s: %d effect(s) (art %d), sample %d, seat %d t=%.2f", street, seal ? "sealed" : "price change", (int)k.fx.size(), art, seal ? 5 : 0x1D, seat, g_time);
+	g_marks.push_back(k);
+	return true;
+}
+
+// [V] the signs (Terra_RebuildQuadMesh @0x4EF0F0, a quad of the terrain mesh, Terra_DeleteTerrainInst @0x4EF540): per street the sign follows the street record +0x108 (sealed days) /
+// +0x110 (price days) / +0x10C (multiplier) - game.cpp rm8GameStreetSign -, Terra_UpdateHeightAll @0x42D650 changes / removes it at the start of a day; while a seal / price task
+// of the street runs the old sign stays (vf16 rebuilds the quads at its end)
+int rm8BoardFxStreetSignShown(int street)
+{
+	for(const MarkTask &m : g_marks) if(m.street == street) return m.prevSign;
+	return rm8GameStreetSign(street);
+}
+
 void rm8BoardFxPlotUpdate(float dt)
 {
+	for(size_t i = 0; i < g_marks.size();){
+		MarkTask &m = g_marks[i];
+		m.timer += dt;
+		bool first = m.lead && !m.fx.empty() && rm8FxFinished(m.fx[0]);	// [V] the first article's finish callback -> vf4 (the list emptied: +0x20 < 1)
+		if(first || m.fx.empty() || m.timer >= 1.2f){	// [V] Cls_5e0910__vf1: +0x20 < 1 or 1.2 s -> vf4, vf16 (the signs), +0x24 = 0x80000000 (done)
+			markEnd(m);
+			if(g_trace) rm8Log("boardfx: street %d mark task ends, sign %d t=%.2f", m.street, rm8GameStreetSign(m.street), g_time);
+			taskEnd(m.seat); g_marks.erase(g_marks.begin() + i); continue;
+		}
+		i++;
+	}
 	for(size_t i = 0; i < g_demos.size();){
 		DemoTask &d = g_demos[i];
 		if(!d.done && rm8FxFinished(d.fx)) demoFinish(d);	// [V] the effect's callback vf4 @0x4F5100
@@ -790,16 +840,18 @@ void rm8BoardFxPlotUpdate(float dt)
 		int t = c.plots[c.idx]; float p[3];
 		if(c.state == 1){ if(rm8GameTerraPos(t, p)) rm8TurnFocus(p); c.state = 2; }	// [V] vf+0x44(plot + 0x88): the camera
 		else if(c.state == 2){ if(rm8GameTerraPos(t, p)) c.fx = fxAtPlot(6028, p, rm8GameTerraType(t) == 1 ? 0.5f : 1.0f, 0x67); c.timer = 0; c.state = 3; }	// [V] Building_SpawnEffectArticle @0x4F4590
-		else if(c.state == 3){ c.timer += dt; if(c.timer >= 1.5f){ rm8GameSetTerra(t, -2, 0, -1); c.timer = 0; c.state = 4; } }	// [V] BuildObj_ResetAll(1, 1)
+		else if(c.state == 3){ c.timer += dt; if(c.timer >= 1.5f){ rm8GameSetTerra(t, -2, 0, 0); c.timer = 0; c.state = 4; } }	// [V] BuildObj_ResetAll(1, 1)
 		else if(c.state == 4){ c.timer += dt; if(c.timer >= 1.0f){ fxDrop(c.fx); c.idx++; c.state = 1; } }
 		i++;
 	}
 	for(size_t i = 0; i < g_monsters.size();){
 		MonsterTask &m = g_monsters[i];
 		m.timer += dt;
-		if(!m.reset && m.timer >= 1.5f){ rm8GameSetTerra(m.terra, -2, 0, -1); m.reset = true; }	// [V] Cls_5e6758__vf1: NPC_Roadblock_Handle -> BuildObj_ResetAll(1, 1)
+		{ static const int shotN = getenv("RM8_SHOT_ON_MONSTER") ? atoi(getenv("RM8_SHOT_ON_MONSTER")) : 0; static int seen = 0; if(shotN > 0 && m.timer >= 1.0f && m.timer - dt < 1.0f && ++seen == shotN) rm8HudShotTrigger(); }	// test hook: the shot of the n-th monster (1 s in; RM8_GAME_SHOT 30 frames later)
+		if(!m.reset && m.timer >= 1.5f){ rm8GameSetTerra(m.terra, -2, 0, 0); m.reset = true; if(g_trace) rm8Log("boardfx: monster razes plot %d t=%.2f", m.terra, g_time); }	// [V] Cls_5e6758__vf1: NPC_Roadblock_Handle -> BuildObj_ResetAll(1, 1)
 		if(rm8FxFinished(m.fx)){	// [V] the effect's callback vf4 @0x4F5330: destroys it, resets again, task done
-			if(!m.reset) rm8GameSetTerra(m.terra, -2, 0, -1);
+			if(!m.reset) rm8GameSetTerra(m.terra, -2, 0, 0);	// [V] BuildObj_ResetAll @0x4EF8C0 also clears the building type (+0x3C &= 0xFFFF): an emptied commercial plot is a free plot again
+			if(g_trace) rm8Log("boardfx: monster task on plot %d ends t=%.2f", m.terra, g_time);
 			fxDrop(m.fx); taskEnd(m.seat); g_monsters.erase(g_monsters.begin() + i); continue;
 		}
 		i++;
@@ -958,4 +1010,49 @@ void rm8BoardFxTestMsgs(float dt)
 		rm8Log("fx test [%.2f]: seat %d message 0x%lX (%ld, %ld)", t, seat, v[1], v[2], v[3]);
 	}
 	next++;
+}
+
+// [V] Terra_RebuildQuadMesh @0x4EF0F0: per plot a quad of the terrain mesh (RenderObject_AddObjectMesh), size 0x20 (residential, +0x3C low word 1) / 0x40, vertices
+// x = (i & 1) * size - size / 2, y = size - (i / 2) * size, z = 0 (an upright sign), rotated about Y by the plot yaw (+0x94), moved to plot + 0x88 + 25 / 50 * the rotated "at" axis,
+// normal = -light direction, colour 0xFFFFFFFF, uv (i & 1, i / 2), triangles 0 2 1 / 1 2 3. [A] drawn with Im3D after the terrain (z test / write, alpha test like the roles),
+// unlit (the original lights it with the normal facing the light: full map light; same as unlit on the white-light maps)
+void rm8BoardFxRenderSigns()
+{
+	if(!g_s || g_s->terras.empty() || rm8GameTerraCount() <= 0) return;
+	static const char *keys[4] = {nullptr, "terra\\land_close.tga", "terra\\land_up.tga", "terra\\land_down.tga"};
+	static Texture *tex[4] = {nullptr, nullptr, nullptr, nullptr}; static bool tried = false;
+	std::map<int, int> signOf;
+	for(int t = 0; t < rm8GameTerraCount() && t < (int)g_s->terras.size(); t++){
+		int st = rm8GameTerraStreet(t);
+		if(st <= 0) continue;
+		auto it = signOf.find(st);
+		if(it == signOf.end()) it = signOf.emplace(st, rm8BoardFxStreetSignShown(st)).first;
+		if(it->second <= 0 || it->second > 3) continue;
+		if(!tried){ tried = true; for(int k = 1; k < 4; k++){ tex[k] = rm8PackTexture(keys[k]); if(!tex[k]) rm8Log("warning: sign texture %s missing", keys[k]); } }
+		Texture *tx = tex[it->second];
+		if(!tx) continue;
+		const Rm8TerraDef &d = g_s->terras[t];
+		bool small = rm8GameTerraType(t) == 1;
+		float size = small ? 32.0f : 64.0f, off = small ? 25.0f : 50.0f;
+		Matrix m; m.setIdentity(); V3d yAxis = {0, 1, 0}; m.rotate(&yAxis, d.yaw, COMBINEREPLACE);
+		V3d c = {d.pos[0] + off * m.at.x, d.pos[1] + off * m.at.y, d.pos[2] + off * m.at.z};
+		gl3::Im3DVertex v[4]; uint16 idx[6] = {0, 2, 1, 1, 2, 3};
+		for(int i = 0; i < 4; i++){
+			float lx = (float)((i & 1) * (int)size - (int)size / 2), ly = (float)((int)size - (i / 2) * (int)size);
+			v[i].setX(c.x + lx * m.right.x + ly * m.up.x); v[i].setY(c.y + lx * m.right.y + ly * m.up.y); v[i].setZ(c.z + lx * m.right.z + ly * m.up.z);
+			v[i].setNormalX(0); v[i].setNormalY(1); v[i].setNormalZ(0);
+			v[i].setColor(255, 255, 255, 255); v[i].setU((float)(i & 1)); v[i].setV((float)(i / 2));
+		}
+		uint32 cull = GetRenderState(CULLMODE), va = GetRenderState(VERTEXALPHA), sb = GetRenderState(SRCBLEND), db = GetRenderState(DESTBLEND);
+		uint32 fn = GetRenderState(ALPHATESTFUNC), ref = GetRenderState(ALPHATESTREF);
+		SetRenderState(CULLMODE, CULLNONE); SetRenderState(VERTEXALPHA, 1); SetRenderState(SRCBLEND, BLENDSRCALPHA); SetRenderState(DESTBLEND, BLENDINVSRCALPHA);
+		SetRenderState(ALPHATESTFUNC, ALPHAGREATEREQUAL); SetRenderState(ALPHATESTREF, 128);
+		SetRenderState(ZTESTENABLE, 1); SetRenderState(ZWRITEENABLE, 1); SetRenderState(TEXTUREFILTER, Texture::LINEAR);
+		SetRenderStatePtr(TEXTURERASTER, tx->raster);
+		im3d::Transform(v, 4, nil, im3d::EVERYTHING);
+		im3d::RenderIndexedPrimitive(PRIMTYPETRILIST, idx, 6);
+		im3d::End();
+		SetRenderState(CULLMODE, cull); SetRenderState(VERTEXALPHA, va); SetRenderState(SRCBLEND, sb); SetRenderState(DESTBLEND, db);
+		SetRenderState(ALPHATESTFUNC, fn); SetRenderState(ALPHATESTREF, ref);
+	}
 }

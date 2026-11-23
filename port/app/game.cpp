@@ -677,6 +677,16 @@ int32_t rm8GameRentPaid(int r){ return validR(r) ? g_r[r].rentOut : 0; }	// [N] 
 int rm8GameBadDays(int r){ return validR(r) ? g_r[r].badDays : 0; }	// [V] +0x340: Role_RunTurnStartStep @0x4842f0 step 9 counts the turn starts in status 1 / 3 / 4 / 5 and the sleepwalk of the 糊塗神 (the balance screen's "unlucky days")
 void rm8GameNoteBadDay(int r){ if(validR(r)) g_r[r].badDays++; }
 void rm8GameStreetClose(int st, int days){ if(st > 0) g_stFx[st].closeDays = days; }	// [V] the street index must be > 0 (commercial plots cannot be sealed)
+// [V] the sign texture of Terra_LoadCloseIcon / Terra_SetHeight / Terra_UpdateHeightAll (boardfx.cpp draws it): sealed -> land_close; else price days -> land_up (multiplier > 1) / land_down.
+// [H] Terra_UpdateHeightAll puts land_up back when a seal ends during a price change whatever the multiplier; only Street.Flow(200) exists (CardPy_29), so up and down never mix
+int rm8GameStreetSign(int st)
+{
+	auto f = g_stFx.find(st);
+	if(f == g_stFx.end() || st <= 0) return 0;
+	if(f->second.closeDays > 0) return 1;
+	if(f->second.flowDays > 0) return f->second.mult > 1.0 ? 2 : 3;
+	return 0;
+}
 void rm8GameStreetFlow(int st, int pct)	// [V] Terra_SetHeight @0x42d4c0: price = ftol(c / oldc * price), multiplier = c, 9 days
 {
 	if(!g_s || st <= 0 || pct <= 0) return;

@@ -48,4 +48,9 @@ bool rm8BoardFxDemolish(int seat, int terra);	// [V] message 0xD, NPC_InitDispla
 bool rm8BoardFxBlink(int seat, const std::vector<int> &plots, int endSample, std::function<void()> onEnd);
 bool rm8BoardFxAngelBuild(int seat, int street);	// [V] message 0x10, Building_AnimateMultiple @0x4F3B20: art 6121 + sample 0x1E, then every plot of the street gets +1 level
 bool rm8BoardFxCrash(int seat, const std::vector<int> &plots);	// [V] message 0x35, Cls_5e6a28 @0x4F4380: per plot art 6028 + sample 0x67, the building goes after 1.5 s
+// [V] messages 0x2F / 0x30, Terra_LoadCloseIcon @0x42D3B0 / Terra_SetHeight @0x42D4C0 (task Cls_5e0910): art 6003 (seal) / 6120 (price) on every plot of the street + sample 5 / 0x1D,
+// state 9 until the first effect ends or 1.2 s, then the street's sign (prevSign until then); false = street 0 (no task)
+bool rm8BoardFxStreetMark(int seat, int street, bool seal, int prevSign);
+int rm8BoardFxStreetSignShown(int street);
+void rm8BoardFxRenderSigns();	// the sign quads (Terra_RebuildQuadMesh @0x4EF0F0), drawn with the terrain (scene.cpp rm8RenderScene)
 bool rm8BoardFxMonster(int seat, int terra);	// [V] message 0x31, NPC_TreasureChest_Init @0x4F51C0: art 6004 + sample 6, the building goes after 1.5 s

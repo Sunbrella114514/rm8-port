@@ -128,6 +128,7 @@ int rm8GameBadDays(int seat);				// [V] +0x340 unlucky days (balance screen)
 void rm8GameNoteBadDay(int seat);			// [V] Role_RunTurnStartStep @0x4842f0 step 9: +0x340++ (status 1 / 3 / 4 / 5, the sleepwalk)
 void rm8GameStreetClose(int street, int days);		// [V] Terra_LoadCloseIcon @0x42d3b0 (rent exempt for `days`)
 void rm8GameStreetFlow(int street, int pct);		// [V] Terra_SetHeight @0x42d4c0 (street factor x pct%, 9 days)
+int rm8GameStreetSign(int street);			// the street's sign (Terra_RebuildQuadMesh texture): 0 none, 1 land_close (sealed), 2 land_up, 3 land_down (price days left)
 void rm8GameDate(int &year, int &month, int &day, int &weekday);	// weekday 1..7 (7 Sunday), 0 = first day Sunday
 int32_t rm8GamePoints(int seat);	// [N] int32_t
 // money / points: Add* ignore v <= 0; SubMoney takes cash then deposit when depositFirst = false (rules_land.md)
@@ -162,6 +163,7 @@ int rm8HudAutoPlayTest(float dt);	// test hook RM8_AUTO_PLAY=<s> / RM8_AUTO_PLAY
 void rm8HudInfo(const std::string &text);
 void rm8HudInfoPic(const std::string &text, int uvlId);	// [V] Role_ShowInfoDialog @0x488ae0 for an entry with a picture: gtinfo.ui (text id 1, picture id 2)
 void rm8HudInfoPicFile(const std::string &text, const std::string &pack);	// [V] Role_ShowInfoDialog @0x488ae0, entry +0x100 != 0: gtinfo.ui, picture by file name (id 2)
+void rm8HudShotTrigger();	// the same trigger from another module (test hooks RM8_SHOT_ON_MONSTER / RM8_SHOT_ON_MARK, boardfx.cpp)
 bool rm8HudShotTriggered();	// test hook RM8_SHOT_ON_INFO (rm8_app.cpp shot loop)
 void rm8HudSeatBankrupt(int seat);	// [V] gmaindlg vf3: seat hexagon -> npc\<pic>_14
 void rm8HudRender(rw::Camera *cam);

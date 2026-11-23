@@ -56,7 +56,7 @@
 | 摆件点击动画 / 声音 | `CArticleMgr vf29 @0x43e9c0` | — | 已做（boardfx 原有） |
 | **遮挡半透明 40 %** | `RoleMgr_UpdateAll @0x495bf0` → vf26 / vf27 / `Art_UpdateGlowAlpha @0x441740` / `vf5 @0x43b210` 模式 3 | — | **本次已做**（见 3.4） |
 | 新闻 TV 的 4 个 Im2D 格子 | `Cls_5e20a8__vf2 @0x4b4770` / `News_InitDialog @0x4b41b0`：2×2 个 240×280 屏幕矩形，顶点色 **0（ARGB 全 0）**，渲染状态 `0xC = 1`（VERTEXALPHAENABLE）、纹理栅格 0 | — | **结论：原版不可见**（alpha 0 的混合），不画是对的，从待办删除 |
-| 街道查封（6003 D05t + land_close.tga）/ 涨价跌价箭头（6120 + land_up / land_down） | `Terra_LoadCloseIcon @0x42d3b0` / `Terra_SetHeight @0x42d4c0` / `Terra_UpdateHeightAll @0x42d650`（类 0x5E0910，`Terra_RebuildQuadMesh @0x4ef0f0` 给街道每块地盖一张贴图四边形，任务 1.2 s，之后随天数保留） | 无 | **缺**（数据已有，贴图 `texture\terra\*.tga` 在包里；未做） |
+| 街道查封（6003 D05t + land_close.tga）/ 涨价跌价箭头（6120 + land_up / land_down） | `Terra_LoadCloseIcon @0x42d3b0` / `Terra_SetHeight @0x42d4c0` / `Terra_UpdateHeightAll @0x42d650`（类 0x5E0910，`Terra_RebuildQuadMesh @0x4ef0f0` 给街道每块地盖一张贴图四边形，任务 1.2 s，之后随天数保留） | 无 | **2026-11-21 已做**（见 3.6） |
 | 选目标标记 6009 eff_att_f（飞弹邻接点）、6114 箭头（选角色，`roles.cpp` 已做回合箭头）、6115 Eff_11、6119 eff_09（问答 NPC）、神灵 6011 / 6014 / 6015 | `Terra_RebuildFromTerra @0x49ff60` 等 | — | 近似（卡片选目标用黄色菱形；问答 / 精灵未做） |
 | 魔法屋气泡（粒子 0） | 地图粒子 | — | 已做（particles） |
 
@@ -120,9 +120,23 @@ role.bin 的时间事件：动作 0（停下按压）`0.08 s` 换亮版贴图、
 - 长模拟（全电脑，`RM8_NEWS_EVERY=1 RM8_START_CASH=500000,0`，3000 s，地图 01 / 05）和 `RM8_CARD_GIVE` 发满拆屋 / 交换 / 怪兽 / 天使 / 地王 / 飞弹的 3000 s 模拟（地图 01 / 03）：0xD、0xE、0x10、0x44 多次触发，无卡死、无 stuck 日志。
 - 电脑 / 安卓：`build-fx` 与 `build-fx-android` 编译链接通过。
 
+## 3.6 街道查封 / 涨价（2026-11-21，boardfx.cpp `rm8BoardFxStreetMark` / `rm8BoardFxRenderSigns`）
+
+[V] 消息 0x2F `Role_MsgHandler_LoadTerraCloseIcon @0x48d220` → `Terra_LoadCloseIcon @0x42d3b0`；消息 0x30 `Role_MsgHandler_SetTerraHeight @0x48d270` → `Terra_SetHeight @0x42d4c0`。两者都只在 0 < 街道 < 街道数时起作用，先写街道记录（+0x108 查封天数；+0x104 价格、+0x10C 倍率、+0x110 = 9 天），再用单例任务 `Cls_5e0910`（`Cls_5e0910_GetInstance @0x42deb0`，vtable 0x5E0910）：
+* `Building_PlaceBuildingOnTerra @0x4f3840`：街道的每块地放一个特效摆件——查封 0x1773 = 6003 `eff\D05t`（盖章），涨价 0x17E8 = 6120（粒子 21，金色光点）——位置 = `Building_GetPosTowardCamera @0x4efa80`（地块位置朝相机拉 20），偏航 = 相机偏航 − 180，住宅地（+0x3C 低字 1）缩放 0.5，动作 0 播一次，只有第一个带结束回调 `GameState_CallCallback2 @0x4f49d0`；样本 **5**（查封）/ **0x1D**（涨价）播一次；角色状态 9（处理函数把任务放到 g_GameState + 0x34）。
+* `Cls_5e0910__vf1 @0x4f3a00`：第一个特效播完（回调 → vf4 `Cls_5e6988__vf4_ClearElements @0x4f3600` 清空列表）或满 **1.2 秒** → vf4 + vf16 `Cls_5e0910__vf16_DestroyTexture @0x4f3a70`：街道每块地 `Terra_RebuildQuadMesh @0x4ef0f0` 换上牌子贴图（land_close；land_up（倍率 > 1）/ land_down；涨价时街道已查封 → 贴图 0，查封牌不变），任务结束，角色回状态 8。实测：查封（D05t 有动画）约 1.03 s 结束，涨价（粒子，无回调）1.2 s。
+* 牌子是地形网格里的一个竖直四边形：边长 0x20（住宅）/ 0x40，顶点 x = (i&1)·s − s/2、y = s − (i/2)·s、z = 0，绕 Y 转地块偏航（+0x94），移到地块位置 + 25 / 50 × 转后的 at 轴（地块朝路的前沿），法线 = −光照方向，颜色 0xFFFFFFFF，uv (i&1, i/2)，三角形 0 2 1 / 1 2 3。贴图 `texture\terra\land_close.tga`（黄色叉字牌）、`land_up.tga`（红色上箭头牌）、`land_down.tga`。
+* `Terra_UpdateHeightAll @0x42d650`（每天开始）：查封 / 涨价天数 − 1；查封结束且还在涨价 → land_up；涨价结束（价格 / 倍率）且没查封 → 删牌子。
+* 原版这两张卡没有额外的文字、镜头移动或表情：电脑用卡时的“%s使用%s”（str 261）和卡的台词由卡片流程给出；镜头在用卡时已对准角色（`Camera_SetFocusPoint(role)`）。
+
+移植：cards.cpp 的 0x2F / 0x30 先记下当前牌子，改街道数据（game.cpp `rm8GameStreetClose / Flow`，原有），再 `rm8BoardFxStreetMark`；牌子由 game.cpp `rm8GameStreetSign`（查封 > 涨价 / 跌价）推出，任务进行中仍显示旧牌子（`rm8BoardFxStreetSignShown`）；`rm8BoardFxRenderSigns` 在 scene.cpp `rm8RenderScene` 画完地形后用 Im3D 画（Z 测试 / 写入、alpha 测试 128）。牌子不进存档（由存档里已有的街道数据推出），所以单机 / 联机的存档字节不变。**[A]** 不打光（白光地图上与原版相同）；**[H]** 查封在涨价期间结束时原版总放回 land_up（与倍率无关），只有 Street.Flow(200) 一种调用（CardPy_29），不会出现差别。
+截图：`port/results/seal/s_4.5.png`（盖章特效）、`crop_7.5.png`（查封牌）、`p_5.5.png`（涨价光点）、`pcrop_7.5.png`（上箭头牌）；`RM8_AUDIO_TRACE` 日志 `results/seal/sp_audio.log`：`play 5`（查封）、`play 29`（涨价）、已查封的街道再涨价仍是查封牌。电脑用涨价卡（Competence 路径）：`results/seal/ai.log`。联机：`work_net/run/G1/h.log`（人类座位用查封卡，样本 5、5 块地的盖章、查封牌）。
+
+同时修正：怪兽（`NPC_TreasureChest_Init @0x4f51c0`）的样本 6 是单独播放的（`CAudioMgr_PlaySample`），任务结束释放摆件时不停止（移植原来把它挂在特效上，比原版早 0.1 秒切断）；怪兽 / 坠机清楼走 `BuildObj_ResetAll @0x4ef8c0`，它同时清掉建筑类型（+0x3C 高字），被毁的商业地重新变成空地（移植原来保留类型）。
+
 ## 6. 未做 / 待确认
 
-1. 街道查封 / 涨价跌价的地块贴图叠加（1.2 表末）：数据在包里，需要 `Terra_RebuildQuadMesh` 的四边形规格。
+1. ~~街道查封 / 涨价跌价的地块贴图叠加~~：2026-11-21 已做（3.6）。
 2. 选目标时的 6009 / 6114 / 6115 标记、问答 NPC 6119、精灵 6011 / 6014 / 6015。
 3. 烟雾 alpha 的原版来源 [H]；看穿的渐变速度 [H]；`0xF` 无发送者。
 4. 破产过场的 0xE 状态（用 9 代替）、故事模式的怪兽新闻调用（原有）。

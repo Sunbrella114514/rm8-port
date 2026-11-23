@@ -1026,6 +1026,26 @@ void rm8MenuNetMirror(const Rm8MenuNetView &v, int mySeat)
 		rolesRefresh();
 	}
 }
+// [N] a guest joined but no seat waits for a network player: the host's room adds one for it (the first unlocked character no seat uses, outfit 0),
+// as long as the map allows another seat; netSeatsSync makes a new human seat a network seat because the host already has its own
+bool rm8MenuNetAddGuestSeat()
+{
+	if(g_netMode != RM8MENU_NET_HOST) return false;
+	int maxSeats = g_setup.map == 101 ? 2 : 4;
+	if((int)g_setup.seats.size() >= maxSeats || g_setup.seats.empty()) return false;
+	for(int id = 1; id <= 16; id++){
+		if(!rm8ProfileRoleUnlocked(id) || !g_roles.count(id)) continue;
+		bool used = false; for(const Rm8Seat &q : g_setup.seats) used |= q.charId == id;
+		if(used) continue;
+		Rm8Seat s; s.charId = id; s.outfit = 0; s.computer = false;
+		g_setup.seats.push_back(s);
+		netSeatsSync();
+		if(g_active && g_scr == S_ROLES && g_ui) rolesRefresh();
+		rm8Log("net: room: a seat for a waiting guest (role %d)", id);
+		return true;
+	}
+	return false;
+}
 bool rm8MenuNetSetSeatRole(int serial, int charId, int outfit)
 {
 	if(g_netMode != RM8MENU_NET_HOST) return false;

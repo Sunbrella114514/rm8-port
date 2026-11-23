@@ -10,6 +10,7 @@
 #include "story.h"
 #include "collect.h"
 #include "npc.h"
+#include "net.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -37,12 +38,17 @@ Rm8Ui *g_win = nullptr, *g_pl = nullptr, *g_mm = nullptr, *g_st = nullptr, *g_bo
 bool g_force = false;		// [A] test hook RM8_INFO_FORCE: any seat, any state (all-computer simulations)
 
 bool force(){ static const bool f = getenv("RM8_INFO_FORCE") != nullptr; return f; }
+bool oldNetInfo(){ static const bool f = getenv("RM8_NET_TEST_OLDINFO") != nullptr; return f; }	// [N] test hook: the old netplay behaviour of the local screens (state 9 / focus on this device only) to reproduce the desync
 
 // ---- common open / close [V] Game_DispatchCardAction @0x4a4420: task created (Game_UseCard @0x4a4160), CPlayerTag_SetStatusCode9, Role_ClearMsgQueues, Role_EnqueueMsg(100)
 void taskBegin(int seat)
 {
 	g_seat = seat; g_stateSet = false;
 	if(force() || seat < 0) return;
+	// [N] netplay: these screens are local (the other devices know nothing about them), so they must not touch the turn: the state 9 / cleared queue / 100 here (and the 8 at the
+	// close) ran only on the device that opened the screen - its role re-ran Role_BeforeRollDice, a dice click of the remote player met state 9 there -> the hashes differed.
+	// The game simply goes on under the screen (the original pauses its single-player game here)
+	if(rm8NetActive() && !oldNetInfo()) return;
 	if(rm8TurnState(seat) == 6){ rm8TurnSetState(seat, 9); rm8TurnClearQueue(seat); rm8TurnEnqueue(seat, 100, 0, 0); g_stateSet = true; }
 }
 
@@ -368,12 +374,16 @@ bool mmToWorld(float px, float py, float &wx, float &wz)
 	wz = g_M.cz + (v - 0.5f) * 2.0f * g_M.half;
 	return true;
 }
+bool g_viewJump = false; float g_viewJumpX = 0, g_viewJumpZ = 0;	// [N] a minimap jump of the local view (netplay)
 void mmFocus(float px, float py)
 {
 	float wx, wz;
 	if(!mmToWorld(px, py, wx, wz)) return;
 	float p[3] = {wx, 0, wz};
 	// [A] the ground height at the point is not read (QuadTree_RayCastTile_Wrapper): the board camera only uses x and z
+	// [N] netplay: the turn focus is simulation state (the rules' camera follows it: the card range of the computer, the same-node placement), so a local minimap click only moves
+	// this device's view (rm8_app.cpp takes the jump as a pan offset); it used to move the focus on the clicking device only
+	if(rm8NetActive() && !oldNetInfo()){ g_viewJump = true; g_viewJumpX = wx; g_viewJumpZ = wz; return; }
 	rm8TurnFocus(p);	// Camera_SetFocusPoint
 }
 
@@ -593,6 +603,7 @@ bool rm8InfoClose()
 }
 
 void rm8InfoBoxYield(){ g_boxMine = false; }
+bool rm8InfoTakeViewJump(float &x, float &z){ if(!g_viewJump) return false; g_viewJump = false; x = g_viewJumpX; z = g_viewJumpZ; return true; }
 void rm8InfoAuto(Camera *cam);
 void rm8InfoTick(Camera *cam)
 {
